@@ -1,0 +1,98 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: logshield-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-logshield_db}
+      POSTGRES_USER: ${POSTGRES_USER:-logshield_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-logshield_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - logshield_postgres_data:/var/lib/postgresql/data
+    networks:
+      - logshield-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-logshield_user} -d ${POSTGRES_DB:-logshield_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: logshield-redis
+    restart: unless-stopped
+    profiles:
+      - optional
+    ports:
+      - "6379:6379"
+    networks:
+      - logshield-network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: logshield-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://logshield_user:logshield_password@db:5432/logshield_db}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-access-secret-in-production}
+      JWT_REFRESH_SECRET_KEY: ${JWT_REFRESH_SECRET_KEY:-change-this-refresh-secret-in-production}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      REFRESH_TOKEN_EXPIRE_DAYS: ${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:8080,http://localhost}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-120}
+      AUTH_RATE_LIMIT_PER_MINUTE: ${AUTH_RATE_LIMIT_PER_MINUTE:-20}
+      LOGIN_MAX_FAILED_ATTEMPTS: ${LOGIN_MAX_FAILED_ATTEMPTS:-3}
+      LOGIN_IP_BLOCK_MINUTES: ${LOGIN_IP_BLOCK_MINUTES:-1}
+      REPORT_EXPORT_MAX_ROWS: ${REPORT_EXPORT_MAX_ROWS:-5000}
+      PYTHONUNBUFFERED: "1"
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - logshield-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api}
+    container_name: logshield-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    networks:
+      - logshield-network
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: logshield-nginx
+    restart: unless-stopped
+    profiles:
+      - proxy
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - logshield-network
+
+volumes:
+  logshield_postgres_data:
+
+networks:
+  logshield-network:
+    driver: bridge
