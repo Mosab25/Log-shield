@@ -8,8 +8,8 @@ export function LoginPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [email, setEmail] = useState("admin@logshield.demo");
-  const [password, setPassword] = useState("Admin@12345");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -61,9 +61,9 @@ export function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-slate-950 px-5 text-slate-100">
       <section className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/80 p-8 shadow-2xl">
         <div className="flex items-center gap-3"><ShieldCheck className="h-10 w-10 text-cyan-300" /><div><h1 className="text-2xl font-bold">LogShield</h1><p className="text-sm text-slate-400">SOC Tier 1 Console</p></div></div>
-        <form onSubmit={submit} className="mt-8 space-y-4">
-          <input value={email} onChange={e => setEmail(e.target.value)} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3" placeholder="Email" />
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3" placeholder="Password" />
+        <form onSubmit={submit} className="mt-8 space-y-4" autoComplete="off">
+          <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3" placeholder="Email" autoComplete="username" />
+          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3" placeholder="Password" autoComplete="current-password" />
           {error && !lockoutSeconds && (
             <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-200 flex items-start gap-2">
               <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
@@ -88,7 +88,6 @@ export function LoginPage() {
             Create one
           </Link>
         </p>
-        <p className="mt-5 text-xs leading-6 text-slate-400">Demo: admin@logshield.demo / Admin@12345</p>
       </section>
     </main>
   );

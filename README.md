@@ -26,13 +26,10 @@ LogShield is a defensive SOC Tier 1 web platform that collects, normalizes, and 
 - Auth: JWT access token + refresh token
 - Deployment: Docker Compose, optional Nginx
 
-## Demo Credentials
+## Demo Accounts
 
-| Role | Email | Password |
-|---|---|---|
-| Admin | admin@logshield.demo | Admin@12345 |
-| Analyst | analyst@logshield.demo | Analyst@12345 |
-| Viewer | viewer@logshield.demo | Viewer@12345 |
+The demo seed creates admin, analyst, and viewer accounts for local testing.
+Do not publish seeded passwords in public frontend UI or production deployment notes.
 
 ## Local Backend Setup
 
@@ -122,6 +119,26 @@ Open:
 ```text
 http://localhost:8080
 ```
+
+## Render Deployment Notes
+
+Frontend static site:
+
+```env
+VITE_API_BASE_URL=https://log-shield-hjpg.onrender.com/api
+```
+
+Backend web service:
+
+```env
+CORS_ORIGINS=https://logshield-frontend.onrender.com
+```
+
+The frontend includes `frontend/public/_redirects` so Render serves
+`index.html` for React routes such as `/dashboard`, `/reports`, `/audit`,
+and `/rules` after a browser refresh.
+
+Use `/api/health` for deployment checks when `/docs` is disabled or unavailable.
 
 ## API Endpoints
 

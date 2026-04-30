@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, Clock3, Download, FileText, RefreshCw, ShieldAlert } from "lucide-react";
-import { apiClient, tokenStorage } from "../api/client";
+import { API_BASE_URL, apiClient, tokenStorage } from "../api/client";
 import { ReportCard } from "../components/ReportCard";
 import { ReportFilters, type ReportFiltersValue } from "../components/ReportFilters";
 import { RiskBadge } from "../components/RiskBadge";
@@ -59,8 +59,7 @@ export function ReportsPage() {
   async function download(type: "csv" | "pdf") {
     try {
       setDownloadType(type);
-      const base = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
-      const response = await fetch(`${base}/reports/export/${type}`, {
+      const response = await fetch(`${API_BASE_URL}/reports/export/${type}`, {
         headers: { Authorization: `Bearer ${tokenStorage.getAccessToken() ?? ""}` },
       });
       if (!response.ok) {

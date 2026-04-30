@@ -75,12 +75,13 @@ export function RegisterPage() {
           </div>
         </div>
 
-        <form onSubmit={submit} className="mt-8 space-y-4">
+        <form onSubmit={submit} className="mt-8 space-y-4" autoComplete="off">
           <input
             value={fullName}
             onChange={e => setFullName(e.target.value)}
             className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3"
             placeholder="Full Name"
+            autoComplete="name"
           />
           <input
             type="email"
@@ -88,6 +89,7 @@ export function RegisterPage() {
             onChange={e => setEmail(e.target.value)}
             className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3"
             placeholder="Email"
+            autoComplete="email"
           />
           <input
             type="password"
@@ -95,6 +97,7 @@ export function RegisterPage() {
             onChange={e => setPassword(e.target.value)}
             className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3"
             placeholder="Password"
+            autoComplete="new-password"
           />
           <p className="text-xs text-slate-400">{passwordHint}</p>
           <input
@@ -103,6 +106,7 @@ export function RegisterPage() {
             onChange={e => setConfirmPassword(e.target.value)}
             className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3"
             placeholder="Confirm Password"
+            autoComplete="new-password"
           />
 
           {error ? (
