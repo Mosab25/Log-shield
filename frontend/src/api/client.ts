@@ -9,6 +9,8 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (() => {
 
 const ACCESS_TOKEN_KEY = "logshield_access_token";
 const REFRESH_TOKEN_KEY = "logshield_refresh_token";
+const LEGACY_ACCESS_TOKEN_KEYS = ["access_token", "token", "authToken", "logshield_token"];
+const LEGACY_REFRESH_TOKEN_KEYS = ["refresh_token", "logshield_refresh"];
 
 export class ApiError extends Error {
   status: number;
@@ -24,10 +26,28 @@ export class ApiError extends Error {
 
 export const tokenStorage = {
   getAccessToken(): string | null {
-    return localStorage.getItem(ACCESS_TOKEN_KEY);
+    const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+    if (token) return token;
+    for (const key of LEGACY_ACCESS_TOKEN_KEYS) {
+      const legacyToken = localStorage.getItem(key);
+      if (legacyToken) {
+        localStorage.setItem(ACCESS_TOKEN_KEY, legacyToken);
+        return legacyToken;
+      }
+    }
+    return null;
   },
   getRefreshToken(): string | null {
-    return localStorage.getItem(REFRESH_TOKEN_KEY);
+    const token = localStorage.getItem(REFRESH_TOKEN_KEY);
+    if (token) return token;
+    for (const key of LEGACY_REFRESH_TOKEN_KEYS) {
+      const legacyToken = localStorage.getItem(key);
+      if (legacyToken) {
+        localStorage.setItem(REFRESH_TOKEN_KEY, legacyToken);
+        return legacyToken;
+      }
+    }
+    return null;
   },
   setTokens(accessToken: string, refreshToken?: string): void {
     localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
@@ -36,8 +56,16 @@ export const tokenStorage = {
   clearTokens(): void {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
+    for (const key of [...LEGACY_ACCESS_TOKEN_KEYS, ...LEGACY_REFRESH_TOKEN_KEYS]) {
+      localStorage.removeItem(key);
+    }
   },
 };
+
+export function getAuthHeaders(): Record<string, string> {
+  const token = tokenStorage.getAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 function buildUrl(path: string): string {
   return `${API_BASE_URL}${path.startsWith("/") ? path : `/${path}`}`;
@@ -88,8 +116,7 @@ export async function apiRequest<T>(
   const { method = "GET", body, auth = true, retry = true } = options;
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  if (auth && tokenStorage.getAccessToken())
-    headers.Authorization = `Bearer ${tokenStorage.getAccessToken()}`;
+  if (auth) Object.assign(headers, getAuthHeaders());
   const response = await fetch(buildUrl(path), {
     method,
     headers,

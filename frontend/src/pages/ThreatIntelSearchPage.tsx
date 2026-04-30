@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Search, Globe, Database, AlertCircle, Download, CheckCircle, Clock } from "lucide-react";
-import { ApiError, apiClient, tokenStorage } from "../api/client";
+import { ApiError, apiClient, getAuthHeaders, tokenStorage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { SeverityBadge } from "../components/SeverityBadge";
 
@@ -42,7 +42,7 @@ export function ThreatIntelSearchPage() {
 
   async function search() {
     if (!query.trim()) return;
-    if (!tokenStorage.getAccessToken()) {
+    if (!getAuthHeaders().Authorization) {
       await handleAuthExpired();
       return;
     }
@@ -73,7 +73,7 @@ export function ThreatIntelSearchPage() {
   }
 
   async function importCVE(cveId: string) {
-    if (!tokenStorage.getAccessToken()) {
+    if (!getAuthHeaders().Authorization) {
       await handleAuthExpired();
       return;
     }
