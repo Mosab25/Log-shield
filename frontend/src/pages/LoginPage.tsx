@@ -1,8 +1,45 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { ShieldCheck, Lock, AlertTriangle } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  Fingerprint,
+  Lock,
+  Mail,
+  Network,
+  ShieldCheck,
+} from "lucide-react";
 import { useAuth } from "../auth/AuthContext";
 import { ApiError } from "../api/client";
+
+function LogShieldEmblem() {
+  return (
+    <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl border border-cyan-300/30 bg-cyan-300/10 shadow-[0_0_40px_rgba(34,211,238,0.24)]">
+      <div className="absolute inset-1 rounded-[1.1rem] border border-white/10" />
+      <svg viewBox="0 0 64 64" aria-hidden="true" className="h-11 w-11 drop-shadow-[0_0_18px_rgba(103,232,249,0.45)]">
+        <path
+          d="M32 6 51 14v15c0 14.5-8 23.5-19 29C21 52.5 13 43.5 13 29V14L32 6Z"
+          fill="none"
+          stroke="url(#shieldGradient)"
+          strokeWidth="3"
+          strokeLinejoin="round"
+        />
+        <path d="M24 33.5 30 39 41 25" fill="none" stroke="#e0faff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M20 20h7m10 0h7M19 28h6m14 0h6M24 47h16" fill="none" stroke="#22d3ee" strokeWidth="1.7" strokeLinecap="round" opacity=".62" />
+        <defs>
+          <linearGradient id="shieldGradient" x1="12" x2="54" y1="8" y2="56">
+            <stop stopColor="#a5f3fc" />
+            <stop offset=".52" stopColor="#22d3ee" />
+            <stop offset="1" stopColor="#38bdf8" />
+          </linearGradient>
+        </defs>
+      </svg>
+    </div>
+  );
+}
 
 export function LoginPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
@@ -13,8 +50,8 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || "/dashboard";
-  if (!isLoading && isAuthenticated) return <Navigate to={from} replace />;
 
   useEffect(() => {
     if (lockoutSeconds <= 0) return;
@@ -26,6 +63,8 @@ export function LoginPage() {
     }, 1000);
     return () => clearInterval(timer);
   }, [lockoutSeconds]);
+
+  if (!isLoading && isAuthenticated) return <Navigate to={from} replace />;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -58,36 +97,144 @@ export function LoginPage() {
   };
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-5 text-slate-100">
-      <section className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/80 p-8 shadow-2xl">
-        <div className="flex items-center gap-3"><ShieldCheck className="h-10 w-10 text-cyan-300" /><div><h1 className="text-2xl font-bold">LogShield</h1><p className="text-sm text-slate-400">SOC Tier 1 Console</p></div></div>
-        <form onSubmit={submit} className="mt-8 space-y-4" autoComplete="off">
-          <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3" placeholder="Email" autoComplete="username" />
-          <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3" placeholder="Password" autoComplete="current-password" />
+    <main className="relative flex min-h-screen overflow-hidden bg-[#020817] px-4 py-8 text-slate-100 sm:px-6 lg:px-8">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(34,211,238,0.18),transparent_34rem),radial-gradient(circle_at_18%_78%,rgba(56,189,248,0.12),transparent_26rem),linear-gradient(135deg,#020817_0%,#061227_48%,#020817_100%)]" />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.18] [background-image:linear-gradient(rgba(125,211,252,.22)_1px,transparent_1px),linear-gradient(90deg,rgba(125,211,252,.22)_1px,transparent_1px)] [background-size:56px_56px]" />
+      <div className="pointer-events-none absolute left-1/2 top-0 h-px w-[84rem] -translate-x-1/2 bg-gradient-to-r from-transparent via-cyan-200/50 to-transparent" />
+      <div className="pointer-events-none absolute -right-48 top-20 h-[34rem] w-[34rem] rounded-full border border-cyan-300/10" />
+      <div className="pointer-events-none absolute -right-32 top-36 h-[22rem] w-[22rem] rounded-full border border-sky-400/10" />
+
+      <section className="relative z-10 mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center gap-10 lg:grid-cols-[1fr_28rem]">
+        <div className="hidden max-w-2xl lg:block">
+          <div className="inline-flex items-center gap-2 rounded-full border border-cyan-300/20 bg-cyan-300/10 px-4 py-2 text-xs font-semibold uppercase tracking-[0.28em] text-cyan-100 shadow-[0_0_26px_rgba(34,211,238,0.16)]">
+            <ShieldCheck className="h-4 w-4" />
+            Secure Access
+          </div>
+
+          <h1 className="mt-8 max-w-3xl text-5xl font-black leading-tight text-white xl:text-6xl">
+            Real-time defense intelligence for modern SOC teams.
+          </h1>
+          <p className="mt-5 max-w-xl text-lg leading-8 text-slate-300">
+            LogShield brings risk detection, alert triage, and security monitoring into one polished command surface.
+          </p>
+
+          <div className="mt-10 grid max-w-xl gap-4 sm:grid-cols-3">
+            {[
+              { icon: Activity, label: "Threat Detection" },
+              { icon: Fingerprint, label: "Risk Scoring" },
+              { icon: Network, label: "Incident Triage" },
+            ].map(item => (
+              <div key={item.label} className="rounded-2xl border border-white/10 bg-white/[0.045] p-4 shadow-2xl shadow-cyan-950/20 backdrop-blur">
+                <item.icon className="h-5 w-5 text-cyan-200" />
+                <p className="mt-3 text-sm font-semibold text-slate-100">{item.label}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mx-auto w-full max-w-md">
+          <section className="relative rounded-[2rem] border border-white/10 bg-slate-950/70 p-1 shadow-[0_30px_100px_rgba(0,0,0,0.55),0_0_80px_rgba(34,211,238,0.13)] backdrop-blur-2xl">
+            <div className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/70 to-transparent" />
+            <div className="rounded-[1.75rem] border border-white/[0.06] bg-gradient-to-b from-white/[0.08] to-white/[0.025] p-6 sm:p-8">
+              <div className="flex items-center gap-4">
+                <LogShieldEmblem />
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.26em] text-cyan-200">LogShield</p>
+                  <h2 className="mt-1 text-2xl font-black text-white">SOC Tier 1 Console</h2>
+                </div>
+              </div>
+
+              <div className="mt-8">
+                <h3 className="text-3xl font-bold tracking-tight text-white">Sign in securely</h3>
+                <p className="mt-2 text-sm leading-6 text-slate-400">
+                  Access your monitoring workspace and continue investigating active security signals.
+                </p>
+              </div>
+
+              <form onSubmit={submit} className="mt-8 space-y-5" autoComplete="off">
+                <label className="block">
+                  <span className="text-sm font-medium text-slate-300">Email address</span>
+                  <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3.5 text-slate-100 shadow-inner shadow-black/30 transition focus-within:border-cyan-300/70 focus-within:ring-4 focus-within:ring-cyan-300/10">
+                    <Mail className="h-5 w-5 text-cyan-200/80" />
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600"
+                      placeholder="you@company.com"
+                      autoComplete="username"
+                      required
+                    />
+                  </span>
+                </label>
+
+                <label className="block">
+                  <span className="text-sm font-medium text-slate-300">Password</span>
+                  <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3.5 text-slate-100 shadow-inner shadow-black/30 transition focus-within:border-cyan-300/70 focus-within:ring-4 focus-within:ring-cyan-300/10">
+                    <Lock className="h-5 w-5 text-cyan-200/80" />
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600"
+                      placeholder="Enter your password"
+                      autoComplete="current-password"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(value => !value)}
+                      className="rounded-lg p-1 text-slate-400 transition hover:bg-white/5 hover:text-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                    </button>
+                  </span>
+                </label>
+
           {error && !lockoutSeconds && (
-            <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-200 flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-              <span>{error}</span>
-            </div>
+                  <div className="flex items-start gap-3 rounded-2xl border border-amber-300/30 bg-amber-400/10 p-4 text-sm text-amber-100 shadow-[0_0_24px_rgba(251,191,36,0.08)]">
+                    <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+                    <span>{error}</span>
+                  </div>
           )}
           {lockoutSeconds > 0 && (
-            <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-4 text-center">
-              <Lock className="h-8 w-8 text-red-400 mx-auto mb-2" />
-              <p className="text-red-200 font-semibold">Account Temporarily Locked</p>
-              <p className="text-3xl font-bold text-red-300 mt-2 tabular-nums">{formatTimer(lockoutSeconds)}</p>
-              <p className="text-xs text-red-400/70 mt-2">{error ?? "Too many failed login attempts. Please wait before trying again."}</p>
-            </div>
+                  <div className="rounded-2xl border border-red-300/30 bg-red-500/10 p-5 text-center shadow-[0_0_30px_rgba(248,113,113,0.1)]">
+                    <Lock className="mx-auto mb-2 h-8 w-8 text-red-300" />
+                    <p className="font-semibold text-red-100">Access temporarily paused</p>
+                    <p className="mt-2 text-3xl font-bold tabular-nums text-red-200">{formatTimer(lockoutSeconds)}</p>
+                    <p className="mt-2 text-xs text-red-200/75">{error ?? "Too many failed login attempts. Please wait before trying again."}</p>
+                  </div>
           )}
-          <button disabled={lockoutSeconds > 0 || isSubmitting} className={`w-full rounded-2xl px-5 py-3 font-bold text-slate-950 transition-colors ${lockoutSeconds > 0 ? "bg-slate-600 cursor-not-allowed" : "bg-cyan-400 hover:bg-cyan-300"}`}>
-            {isSubmitting ? "Signing in..." : lockoutSeconds > 0 ? `Locked (${formatTimer(lockoutSeconds)})` : "Sign in"}
-          </button>
-        </form>
-        <p className="mt-4 text-sm text-slate-400">
-          No account yet?{" "}
-          <Link to="/register" className="text-cyan-300 hover:text-cyan-200">
-            Create one
-          </Link>
-        </p>
+
+                <button
+                  disabled={lockoutSeconds > 0 || isSubmitting}
+                  className={`group flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-black text-slate-950 shadow-[0_18px_42px_rgba(34,211,238,0.24)] transition duration-300 focus:outline-none focus-visible:ring-4 focus-visible:ring-cyan-200/30 ${
+                    lockoutSeconds > 0 || isSubmitting
+                      ? "cursor-not-allowed bg-slate-600 text-slate-300 shadow-none"
+                      : "bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-300 hover:-translate-y-0.5 hover:shadow-[0_24px_60px_rgba(34,211,238,0.32)]"
+                  }`}
+                >
+                  {isSubmitting ? "Verifying access..." : lockoutSeconds > 0 ? `Locked (${formatTimer(lockoutSeconds)})` : "Sign in"}
+                  {!isSubmitting && lockoutSeconds <= 0 ? <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" /> : null}
+                </button>
+              </form>
+
+              <div className="mt-7 border-t border-white/10 pt-5">
+                <p className="text-center text-sm text-slate-400">
+                  No account yet?{" "}
+                  <Link to="/register" className="font-semibold text-cyan-200 transition hover:text-white focus:outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-cyan-300/70">
+                    Create one
+                  </Link>
+                </p>
+              </div>
+            </div>
+          </section>
+
+          <p className="mt-5 text-center text-xs text-slate-500">
+            Protected access for security operations and incident response teams.
+          </p>
+        </div>
       </section>
     </main>
   );
