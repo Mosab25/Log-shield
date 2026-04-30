@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Search, Globe, Database, AlertCircle, Download, CheckCircle, Clock } from "lucide-react";
-import { apiClient } from "../api/client";
+import { ApiError, apiClient, tokenStorage } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import { SeverityBadge } from "../components/SeverityBadge";
 
 const SOURCE_COLORS: Record<string, string> = {
@@ -17,6 +18,9 @@ function SourceBadge({ source }: { source: string }) {
 }
 
 export function ThreatIntelSearchPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { refreshUser } = useAuth();
   const [query, setQuery] = useState("");
   const [severity, setSeverity] = useState("");
   const [source, setSource] = useState("all");
@@ -27,21 +31,41 @@ export function ThreatIntelSearchPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  async function handleAuthExpired() {
+    setResults([]);
+    setTotal(0);
+    tokenStorage.clearTokens();
+    await refreshUser();
+    setMessage("Session expired. Please sign in again.");
+    navigate("/login", { replace: true, state: { from: location } });
+  }
+
   async function search() {
     if (!query.trim()) return;
+    if (!tokenStorage.getAccessToken()) {
+      await handleAuthExpired();
+      return;
+    }
     setLoading(true);
     setMessage(null);
     try {
       const p = new URLSearchParams({ q: query });
+      p.set("include_external", "true");
       if (severity) p.set("severity", severity);
       if (source !== "all") p.set("source", source);
       const res = await apiClient.get<any>(`/threat-intel/search?${p.toString()}`);
-      setResults(res.results);
-      setTotal(res.total);
-      setSourceSummary(res.source_summary);
-      setExternalUnavailable(res.external_source_unavailable);
-      setMessage(res.message);
+      setResults(Array.isArray(res.results) ? res.results : []);
+      setTotal(res.total ?? 0);
+      setSourceSummary(res.source_summary ?? { local: 0, cached: 0, nvd_api: 0 });
+      setExternalUnavailable(Boolean(res.external_source_unavailable));
+      setMessage(res.message ?? null);
     } catch (err: any) {
+      if (err instanceof ApiError && err.status === 401) {
+        await handleAuthExpired();
+        return;
+      }
+      setResults([]);
+      setTotal(0);
       setMessage(err?.message ?? "Search failed.");
     } finally {
       setLoading(false);
@@ -49,10 +73,18 @@ export function ThreatIntelSearchPage() {
   }
 
   async function importCVE(cveId: string) {
+    if (!tokenStorage.getAccessToken()) {
+      await handleAuthExpired();
+      return;
+    }
     try {
       await apiClient.post(`/threat-intel/import-cve/${cveId}`);
-      search();
+      await search();
     } catch (err: any) {
+      if (err instanceof ApiError && err.status === 401) {
+        await handleAuthExpired();
+        return;
+      }
       alert(err?.message ?? "Import failed.");
     }
   }
