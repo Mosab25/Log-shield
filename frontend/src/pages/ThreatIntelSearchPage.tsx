@@ -30,6 +30,7 @@ export function ThreatIntelSearchPage() {
   const [externalUnavailable, setExternalUnavailable] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [lastQuery, setLastQuery] = useState("");
 
   async function handleAuthExpired() {
     setResults([]);
@@ -54,11 +55,17 @@ export function ThreatIntelSearchPage() {
       if (severity) p.set("severity", severity);
       if (source !== "all") p.set("source", source);
       const res = await apiClient.get<any>(`/threat-intel/search?${p.toString()}`);
-      setResults(Array.isArray(res.results) ? res.results : []);
+      const results = Array.isArray(res.results) ? res.results : [];
+      setResults(results);
       setTotal(res.total ?? 0);
       setSourceSummary(res.source_summary ?? { local: 0, cached: 0, nvd_api: 0 });
       setExternalUnavailable(Boolean(res.external_source_unavailable));
-      setMessage(res.message ?? null);
+      setLastQuery(query);
+      if (res.message) {
+        setMessage(res.message);
+      } else if (results.length === 0) {
+        setMessage(null);
+      }
     } catch (err: any) {
       if (err instanceof ApiError && err.status === 401) {
         await handleAuthExpired();
@@ -66,7 +73,7 @@ export function ThreatIntelSearchPage() {
       }
       setResults([]);
       setTotal(0);
-      setMessage(err?.message ?? "Search failed.");
+      setMessage(`Search error: ${err?.message || "Unknown error"}`);
     } finally {
       setLoading(false);
     }
@@ -119,8 +126,19 @@ export function ThreatIntelSearchPage() {
         {results.length === 0 ? (
           <div className="p-10 text-center text-slate-400">
             <Search className="mx-auto h-12 w-12 text-slate-600" />
-            <p className="mt-3">No results found.</p>
-            <p className="text-sm">Try searching for a CVE ID or keyword.</p>
+            <p className="mt-3">
+              {lastQuery.toUpperCase().startsWith("CVE-")
+                ? `No CVE found for "${lastQuery}"`
+                : "No results found."}
+            </p>
+            <p className="text-sm">
+              {lastQuery.toUpperCase().startsWith("CVE-")
+                ? "Try searching for a different CVE ID or a keyword."
+                : "Try searching for a CVE ID or keyword."}
+            </p>
+            {externalUnavailable && (
+              <p className="text-xs text-amber-400 mt-2">NVD API unavailable - showing local results only</p>
+            )}
           </div>
         ) : (
           <table className="min-w-full divide-y divide-slate-800">
