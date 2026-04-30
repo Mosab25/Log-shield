@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { ShieldAlert, Plus, Search, X } from "lucide-react";
 import { apiClient } from "../api/client";
 import { Pagination } from "../components/Pagination";
 import { SeverityBadge } from "../components/SeverityBadge";
+import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
 
 const TYPE_COLORS: Record<string, string> = {
   vulnerability: "bg-red-500/20 text-red-300 border-red-500/30",
@@ -32,13 +34,13 @@ const STATUS_COLORS: Record<string, string> = {
 function TypeBadge({ type }: { type: string }) {
   const color = TYPE_COLORS[type] ?? "bg-slate-500/20 text-slate-300 border-slate-500/30";
   const label = TYPE_LABELS[type] ?? type.replace(/_/g, " ");
-  return <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-xs font-semibold ${color}`}><ShieldAlert className="h-3 w-3" />{label}</span>;
+  return <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-bold ${color}`}><ShieldAlert className="h-3 w-3" />{label}</span>;
 }
 
-function StatusBadge({ status }: { status: string }) {
+function EntryStatusBadge({ status }: { status: string }) {
   const color = STATUS_COLORS[status] ?? "bg-slate-500/20 text-slate-300 border-slate-500/30";
   const label = status.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-  return <span className={`inline-flex items-center rounded-lg border px-2 py-0.5 text-xs font-semibold ${color}`}>{label}</span>;
+  return <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${color}`}>{label}</span>;
 }
 
 export function ThreatsPage() {
@@ -50,65 +52,90 @@ export function ThreatsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const pageSize = 10;
 
   async function load() {
-    const p = new URLSearchParams({ skip: String((page - 1) * pageSize), limit: String(pageSize) });
-    if (typeFilter) p.set("type", typeFilter);
-    if (severityFilter) p.set("severity", severityFilter);
-    if (statusFilter) p.set("status", statusFilter);
-    if (search) p.set("search", search);
-    const res = await apiClient.get<any>(`/threats?${p.toString()}`);
-    setThreats(res.items); setTotal(res.total);
+    setLoading(true);
+    setError(null);
+    try {
+      const p = new URLSearchParams({ skip: String((page - 1) * pageSize), limit: String(pageSize) });
+      if (typeFilter) p.set("type", typeFilter);
+      if (severityFilter) p.set("severity", severityFilter);
+      if (statusFilter) p.set("status", statusFilter);
+      if (search) p.set("search", search);
+      const res = await apiClient.get<any>(`/threats?${p.toString()}`);
+      setThreats(Array.isArray(res.items) ? res.items : []);
+      setTotal(Number(res.total ?? 0));
+    } catch (err: any) {
+      setThreats([]);
+      setTotal(0);
+      setError(err?.message || "Failed to load threat intelligence entries.");
+    } finally {
+      setLoading(false);
+    }
   }
+
   useEffect(() => { void load(); }, [page, typeFilter, severityFilter, statusFilter, search]);
 
   return (
     <div className="space-y-6">
-      <section className="flex items-center justify-between">
-        <div><p className="text-sm uppercase tracking-[.3em] text-cyan-300">Threat Intelligence</p><h1 className="mt-3 text-3xl font-bold text-white">Knowledge Base</h1></div>
-        <button onClick={() => setShowCreate(true)} className="flex items-center gap-2 rounded-2xl bg-cyan-400 px-5 py-2.5 font-bold text-slate-950 hover:bg-cyan-300"><Plus className="h-5 w-5" />New Entry</button>
-      </section>
+      <PageHeader
+        eyebrow="Threat Intelligence"
+        title="Knowledge Base"
+        description="Curate vulnerabilities, indicators, MITRE mapping, CVEs, and approved threat references."
+        icon={ShieldAlert}
+        actions={<button onClick={() => setShowCreate(true)} className="soc-button-primary"><Plus className="h-5 w-5" />New Entry</button>}
+      />
 
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5 flex flex-wrap gap-3 items-center">
-        <div className="relative flex-1 min-w-[200px]"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search threats..." className="w-full rounded-2xl border border-slate-700 bg-slate-950 pl-10 pr-4 py-2.5" /></div>
-        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="rounded-2xl bg-slate-950 px-4 py-2.5"><option value="">All types</option><option value="vulnerability">Vulnerability</option><option value="attack_pattern">Attack Pattern</option><option value="cve">CVE</option><option value="mitre_technique">MITRE Technique</option><option value="ioc">IOC</option></select>
-        <select value={severityFilter} onChange={e => setSeverityFilter(e.target.value)} className="rounded-2xl bg-slate-950 px-4 py-2.5"><option value="">All severities</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="rounded-2xl bg-slate-950 px-4 py-2.5"><option value="">All statuses</option><option value="draft">Draft</option><option value="pending_review">Pending Review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="archived">Archived</option></select>
-      </section>
-
-      {showCreate && <CreateThreatModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); void load(); }} />}
-
-      <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/70">
-        {threats.length === 0 ? (
-          <div className="p-10 text-center text-slate-400">
-            <ShieldAlert className="mx-auto h-12 w-12 text-slate-600" />
-            <p className="mt-3">No threat entries found.</p>
-            <p className="text-sm">Create your first threat entry to get started.</p>
+      <section className="soc-panel p-5">
+        <div className="grid gap-3 xl:grid-cols-[1fr_12rem_12rem_12rem]">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-500" />
+            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search threats..." className="soc-input w-full pl-10" />
           </div>
-        ) : (
-          <table className="min-w-full divide-y divide-slate-800">
-            <tbody className="divide-y divide-slate-800">
-              {threats.map((t: any) => (
-                <tr key={t.id} className="hover:bg-slate-800/30">
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-2 mb-1"><TypeBadge type={t.type} /><StatusBadge status={t.status} /></div>
-                    <p className="font-semibold">{t.title}</p>
-                    <p className="text-xs text-slate-500">{t.category ?? "—"} · {t.source} · {t.indicator_count} indicator(s)</p>
-                    {t.mitre_tactic && <p className="text-xs text-cyan-400/70 mt-1">MITRE: {t.mitre_tactic}{t.mitre_technique ? ` → ${t.mitre_technique}` : ""}</p>}
-                    {t.tags?.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{t.tags.map((tag: any) => <span key={tag.id} className="rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-400">{tag.name}</span>)}</div>}
-                  </td>
-                  <td className="px-3"><SeverityBadge severity={t.severity} /></td>
-                  <td className="px-3 text-sm text-slate-400">{t.cve_id ?? "—"}</td>
-                  <td className="px-3 text-sm text-slate-400">{t.cvss_score ?? "—"}</td>
-                  <td className="px-3"><Link className="text-cyan-300 text-sm" to={`/threats/${t.id}`}>Open</Link></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-        <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
-      </div>
+          <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1); }} className="soc-input"><option value="">All types</option><option value="vulnerability">Vulnerability</option><option value="attack_pattern">Attack Pattern</option><option value="cve">CVE</option><option value="mitre_technique">MITRE Technique</option><option value="ioc">IOC</option></select>
+          <select value={severityFilter} onChange={e => { setSeverityFilter(e.target.value); setPage(1); }} className="soc-input"><option value="">All severities</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
+          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className="soc-input"><option value="">All statuses</option><option value="draft">Draft</option><option value="pending_review">Pending Review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="archived">Archived</option></select>
+        </div>
+      </section>
+
+      {showCreate ? <CreateThreatModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); void load(); }} /> : null}
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {loading ? <SkeletonRows rows={6} /> : null}
+
+      {!loading ? (
+        <div className="soc-panel overflow-hidden">
+          {threats.length === 0 ? (
+            <div className="p-5"><EmptyState title="No threat entries found" description="Create your first threat entry or adjust the current filters." icon={ShieldAlert} /></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="soc-table">
+                <thead><tr><th>Threat</th><th>Severity</th><th>CVE</th><th>CVSS</th><th>Open</th></tr></thead>
+                <tbody>
+                  {threats.map((t: any) => (
+                    <tr key={t.id}>
+                      <td>
+                        <div className="mb-2 flex flex-wrap items-center gap-2"><TypeBadge type={t.type} /><EntryStatusBadge status={t.status} /></div>
+                        <p className="font-bold text-white">{t.title}</p>
+                        <p className="text-xs text-slate-500">{t.category ?? "N/A"} - {t.source} - {t.indicator_count} indicator(s)</p>
+                        {t.mitre_tactic && <p className="mt-1 text-xs text-cyan-300/75">MITRE: {t.mitre_tactic}{t.mitre_technique ? ` -> ${t.mitre_technique}` : ""}</p>}
+                        {t.tags?.length > 0 ? <div className="mt-2 flex flex-wrap gap-1">{t.tags.map((tag: any) => <span key={tag.id} className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400">{tag.name}</span>)}</div> : null}
+                      </td>
+                      <td><SeverityBadge severity={t.severity} /></td>
+                      <td className="text-sm text-slate-400">{t.cve_id ?? "N/A"}</td>
+                      <td className="text-sm text-slate-400">{t.cvss_score ?? "N/A"}</td>
+                      <td><Link className="font-semibold text-cyan-200 hover:text-white" to={`/threats/${t.id}`}>Open</Link></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -128,7 +155,7 @@ function CreateThreatModal({ onClose, onCreated }: { onClose: () => void; onCrea
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  async function submit(e: any) {
+  async function submit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
@@ -154,31 +181,31 @@ function CreateThreatModal({ onClose, onCreated }: { onClose: () => void; onCrea
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-3xl border border-slate-700 bg-slate-900 p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4"><h2 className="text-xl font-bold">New Threat Entry</h2><button onClick={onClose}><X className="h-5 w-5 text-slate-400" /></button></div>
-        {error && <div className="mb-3 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="soc-panel-strong max-h-[90vh] w-full max-w-2xl overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+        <div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-black text-white">New Threat Entry</h2><button onClick={onClose} className="soc-button-ghost h-9 w-9 px-0"><X className="h-5 w-5" /></button></div>
+        {error ? <div className="mb-3 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div> : null}
         <form onSubmit={submit} className="space-y-3">
-          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title *" required className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-2.5" />
-          <div className="grid grid-cols-2 gap-3">
-            <select value={type} onChange={e => setType(e.target.value)} className="rounded-2xl bg-slate-950 px-4 py-2.5"><option value="vulnerability">Vulnerability</option><option value="attack_pattern">Attack Pattern</option><option value="cve">CVE</option><option value="mitre_technique">MITRE Technique</option><option value="ioc">IOC</option></select>
-            <select value={severity} onChange={e => setSeverity(e.target.value)} className="rounded-2xl bg-slate-950 px-4 py-2.5"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title *" required className="soc-input w-full" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <select value={type} onChange={e => setType(e.target.value)} className="soc-input"><option value="vulnerability">Vulnerability</option><option value="attack_pattern">Attack Pattern</option><option value="cve">CVE</option><option value="mitre_technique">MITRE Technique</option><option value="ioc">IOC</option></select>
+            <select value={severity} onChange={e => setSeverity(e.target.value)} className="soc-input"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
           </div>
-          <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Description *" required rows={3} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-2.5" />
-          <div className="grid grid-cols-2 gap-3">
-            <input value={category} onChange={e => setCategory(e.target.value)} placeholder="Category" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-2.5" />
-            <input value={cveId} onChange={e => setCveId(e.target.value)} placeholder="CVE ID" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-2.5" />
+          <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Description *" required rows={3} className="soc-input w-full" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <input value={category} onChange={e => setCategory(e.target.value)} placeholder="Category" className="soc-input" />
+            <input value={cveId} onChange={e => setCveId(e.target.value)} placeholder="CVE ID" className="soc-input" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <input value={mitreTactic} onChange={e => setMitreTactic(e.target.value)} placeholder="MITRE Tactic" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-2.5" />
-            <input value={mitreTechnique} onChange={e => setMitreTechnique(e.target.value)} placeholder="MITRE Technique" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-2.5" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <input value={mitreTactic} onChange={e => setMitreTactic(e.target.value)} placeholder="MITRE Tactic" className="soc-input" />
+            <input value={mitreTechnique} onChange={e => setMitreTechnique(e.target.value)} placeholder="MITRE Technique" className="soc-input" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <input value={cvssScore} onChange={e => setCvssScore(e.target.value)} placeholder="CVSS Score (0-10)" type="number" step="0.1" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-2.5" />
-            <input value={tagNames} onChange={e => setTagNames(e.target.value)} placeholder="Tags (comma separated)" className="rounded-2xl border border-slate-700 bg-slate-950 px-4 py-2.5" />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <input value={cvssScore} onChange={e => setCvssScore(e.target.value)} placeholder="CVSS Score (0-10)" type="number" step="0.1" className="soc-input" />
+            <input value={tagNames} onChange={e => setTagNames(e.target.value)} placeholder="Tags (comma separated)" className="soc-input" />
           </div>
-          <textarea value={mitigation} onChange={e => setMitigation(e.target.value)} placeholder="Mitigation" rows={2} className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-2.5" />
-          <button type="submit" disabled={submitting} className="w-full rounded-2xl bg-cyan-400 py-3 font-bold text-slate-950 hover:bg-cyan-300 disabled:opacity-50">{submitting ? "Creating..." : "Create Threat Entry"}</button>
+          <textarea value={mitigation} onChange={e => setMitigation(e.target.value)} placeholder="Mitigation" rows={2} className="soc-input w-full" />
+          <button type="submit" disabled={submitting} className="soc-button-primary w-full py-3">{submitting ? "Creating..." : "Create Threat Entry"}</button>
         </form>
       </div>
     </div>

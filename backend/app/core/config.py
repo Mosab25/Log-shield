@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -22,7 +26,11 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = Field(default=7, alias="REFRESH_TOKEN_EXPIRE_DAYS")
 
     cors_origins: str = Field(
-        default="http://localhost:5173,http://localhost:8080,http://localhost",
+        default=(
+            "http://localhost:5173,http://127.0.0.1:5173,"
+            "http://localhost:8080,http://127.0.0.1:8080,"
+            "http://localhost,http://127.0.0.1"
+        ),
         alias="CORS_ORIGINS",
     )
 
@@ -40,7 +48,7 @@ class Settings(BaseSettings):
     threat_search_local_first: bool = Field(default=True, alias="THREAT_SEARCH_LOCAL_FIRST")
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(BACKEND_DIR / ".env", BACKEND_DIR / ".env.local"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

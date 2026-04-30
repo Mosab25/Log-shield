@@ -7,6 +7,7 @@ import { LogsTable } from "../components/LogsTable";
 import { RiskDistributionChart } from "../components/RiskDistributionChart";
 import { StatCard } from "../components/StatCard";
 import { TimelineChart } from "../components/TimelineChart";
+import { EmptyState, ErrorState, PageHeader, SectionHeader, SkeletonBlock } from "../components/UI";
 
 const initialFilters: DashboardFilters = { severity: "", source: "", status: "" };
 
@@ -81,32 +82,37 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <section className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-sm uppercase tracking-[.3em] text-cyan-300">SOC Tier 1</p>
-          <h1 className="mt-3 text-3xl font-bold text-white">Dashboard</h1>
-          <p className="mt-3 text-sm text-slate-400">Monitor log volume, alerts, risk distribution, and recent security events.</p>
-        </div>
-        <button
-          onClick={() => setRefreshTick(v => v + 1)}
-          disabled={loading}
-          className="inline-flex items-center gap-2 rounded-2xl border border-slate-700 bg-slate-950 px-4 py-2 text-sm disabled:opacity-50"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
-      </section>
+      <PageHeader
+        eyebrow="SOC Tier 1"
+        title="Dashboard"
+        description="Monitor log volume, alert pressure, risk distribution, and recent security events from one command surface."
+        icon={ShieldAlert}
+        actions={
+          <button onClick={() => setRefreshTick(v => v + 1)} disabled={loading} className="soc-button-ghost">
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        }
+      />
 
       <Filters filters={filters} onChange={setFilters} onApply={() => setApplied(filters)} />
 
-      {error ? <div className="rounded-2xl border border-amber-600/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{error}</div> : null}
+      {error ? <ErrorState message={error} onRetry={() => setRefreshTick(v => v + 1)} /> : null}
 
-      {loading ? <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-8 text-center text-slate-300">Loading dashboard data...</div> : null}
+      {loading ? (
+        <div className="space-y-6">
+          <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, index) => <SkeletonBlock key={index} className="h-36" />)}
+          </section>
+          <section className="grid gap-6 xl:grid-cols-2">
+            <SkeletonBlock className="h-80" />
+            <SkeletonBlock className="h-80" />
+          </section>
+        </div>
+      ) : null}
 
       {!loading && !hasAnyData ? (
-        <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-8 text-center text-slate-300">
-          No data available yet. Ingest logs or run demo seed data.
-        </div>
+        <EmptyState title="No dashboard data yet" description="Ingest logs or seed demo data to populate metrics, timelines, and alert activity." />
       ) : null}
 
       {!loading && hasAnyData ? (
@@ -123,27 +129,24 @@ export function DashboardPage() {
             {timeline.length > 0 ? (
               <TimelineChart data={timeline} />
             ) : (
-              <div className="h-80 rounded-3xl border border-slate-800 bg-slate-900/70 p-5 text-sm text-slate-400">No timeline data available yet.</div>
+              <div className="soc-panel h-80 p-5"><EmptyState title="No timeline data" description="Alert activity over time will appear here." /></div>
             )}
             {risk.length > 0 ? (
               <RiskDistributionChart data={risk} />
             ) : (
-              <div className="h-80 rounded-3xl border border-slate-800 bg-slate-900/70 p-5 text-sm text-slate-400">No risk distribution data available yet.</div>
+              <div className="soc-panel h-80 p-5"><EmptyState title="No risk distribution" description="Risk buckets will appear when scored events are available." /></div>
             )}
           </section>
 
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5">
-            <div className="mb-4 flex items-center gap-2">
-              <Users className="h-5 w-5 text-cyan-300" />
-              <h2 className="text-lg font-semibold text-white">Top Attacked Users</h2>
-            </div>
+          <section className="soc-panel p-5">
+            <SectionHeader title="Top Attacked Users" icon={Users} />
             {topUsers.length === 0 ? (
-              <p className="text-sm text-slate-400">No data available yet. Ingest logs or run demo seed data.</p>
+              <EmptyState title="No targeted users yet" description="User targeting trends will appear after relevant alerts are created." />
             ) : (
-              <div className="space-y-3">
+              <div className="grid gap-3 lg:grid-cols-2">
                 {topUsers.map((user: any) => (
-                  <div key={user.username} className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm">
-                    <span className="font-medium text-slate-100">{user.username}</span>
+                  <div key={user.username} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/75 px-4 py-3 text-sm">
+                    <span className="font-bold text-slate-100">{user.username}</span>
                     <span className="text-slate-400">Alerts: {user.alert_count ?? 0}</span>
                     <span className="text-slate-400">Logs: {user.log_count ?? 0}</span>
                     <span className="text-slate-400">Max Risk: {user.max_risk_score ?? 0}</span>
@@ -153,8 +156,8 @@ export function DashboardPage() {
             )}
           </section>
 
-          {events.length > 0 ? <LogsTable logs={events} /> : <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5 text-sm text-slate-400">No recent security events available yet.</div>}
-          {alerts.length > 0 ? <AlertsTable alerts={alerts} /> : <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5 text-sm text-slate-400">No recent alerts available yet.</div>}
+          {events.length > 0 ? <LogsTable logs={events} /> : <EmptyState title="No recent security events" description="Recent parsed security events will appear here." />}
+          {alerts.length > 0 ? <AlertsTable alerts={alerts} /> : <EmptyState title="No recent alerts" description="New alerts will appear here as rules detect risky activity." />}
         </>
       ) : null}
     </div>

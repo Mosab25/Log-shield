@@ -5,6 +5,7 @@ import { ReportCard } from "../components/ReportCard";
 import { ReportFilters, type ReportFiltersValue } from "../components/ReportFilters";
 import { RiskBadge } from "../components/RiskBadge";
 import { SeverityBadge } from "../components/SeverityBadge";
+import { EmptyState, ErrorState, PageHeader, SectionHeader, SkeletonBlock } from "../components/UI";
 
 export function ReportsPage() {
   const [filters, setFilters] = useState<ReportFiltersValue>({ reportType: "weekly" });
@@ -91,36 +92,36 @@ export function ReportsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-sm uppercase tracking-[.3em] text-cyan-300">Reports</p>
-          <h1 className="mt-3 text-3xl font-bold">Security Reports</h1>
-        </div>
-        <div className="flex flex-wrap gap-3">
+      <PageHeader
+        eyebrow="Reports"
+        title="Security Reports"
+        description="Review operational summaries, alert resolution posture, and high-risk entities for executive and SOC reporting."
+        icon={FileText}
+        actions={
+          <>
           <button onClick={() => setRefreshTick(v => v + 1)} disabled={loading} className="inline-flex items-center gap-2 rounded-2xl border border-slate-700 px-4 py-2 text-sm disabled:opacity-50">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </button>
-          <button onClick={() => void download("csv")} disabled={downloadType !== null} className="rounded-2xl border border-slate-700 px-4 py-2 disabled:opacity-50">
+          <button onClick={() => void download("csv")} disabled={downloadType !== null} className="soc-button-ghost disabled:opacity-50">
             <Download className="mr-2 inline h-4 w-4" />
             {downloadType === "csv" ? "Downloading CSV..." : "CSV"}
           </button>
-          <button onClick={() => void download("pdf")} disabled={downloadType !== null} className="rounded-2xl bg-cyan-400 px-4 py-2 font-bold text-slate-950 disabled:opacity-50">
+          <button onClick={() => void download("pdf")} disabled={downloadType !== null} className="soc-button-primary disabled:opacity-50">
             {downloadType === "pdf" ? "Downloading PDF..." : "PDF"}
           </button>
-        </div>
-      </section>
+          </>
+        }
+      />
 
       <ReportFilters filters={filters} onChange={setFilters} onApply={() => setApplied(filters)} />
 
-      {error ? <div className="rounded-2xl border border-amber-600/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">{error}</div> : null}
+      {error ? <ErrorState message={error} onRetry={() => setRefreshTick(v => v + 1)} /> : null}
 
-      {loading ? <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-8 text-center text-slate-300">Loading report data...</div> : null}
+      {loading ? <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <SkeletonBlock key={i} className="h-36" />)}</section> : null}
 
       {!loading && !hasAnyData ? (
-        <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-8 text-center text-slate-300">
-          No data available yet. Ingest logs or run demo seed data.
-        </div>
+        <EmptyState title="No report data yet" description="Ingest logs or seed demo data to populate report metrics and breakdowns." />
       ) : null}
 
       {!loading && hasAnyData ? (
@@ -133,10 +134,10 @@ export function ReportsPage() {
           </section>
 
           <section className="grid gap-6 xl:grid-cols-3">
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5">
-              <h2 className="text-lg font-semibold">Alerts by Severity</h2>
+            <div className="soc-panel p-5">
+              <SectionHeader title="Alerts by Severity" icon={ShieldAlert} />
               {severity.length === 0 ? (
-                <p className="mt-3 text-sm text-slate-400">No data available yet. Ingest logs or run demo seed data.</p>
+                <EmptyState title="No severity data" description="Severity distribution will appear here." />
               ) : (
                 severity.map(item => (
                   <div key={item.severity} className="mt-3 flex items-center justify-between gap-3">
@@ -147,10 +148,10 @@ export function ReportsPage() {
               )}
             </div>
 
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5">
-              <h2 className="text-lg font-semibold">Top Risky IPs</h2>
+            <div className="soc-panel p-5">
+              <SectionHeader title="Top Risky IPs" icon={AlertCircle} />
               {ips.length === 0 ? (
-                <p className="mt-3 text-sm text-slate-400">No data available yet. Ingest logs or run demo seed data.</p>
+                <EmptyState title="No risky IPs yet" description="High-risk IPs will appear here." />
               ) : (
                 ips.map(item => (
                   <div key={item.ip_address} className="mt-3 flex items-center justify-between gap-3">
@@ -161,10 +162,10 @@ export function ReportsPage() {
               )}
             </div>
 
-            <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5">
-              <h2 className="text-lg font-semibold">Most Targeted Users</h2>
+            <div className="soc-panel p-5">
+              <SectionHeader title="Most Targeted Users" icon={Clock3} />
               {users.length === 0 ? (
-                <p className="mt-3 text-sm text-slate-400">No data available yet. Ingest logs or run demo seed data.</p>
+                <EmptyState title="No targeted users yet" description="User targeting patterns will appear here." />
               ) : (
                 users.map(item => (
                   <div key={item.username} className="mt-3 flex items-center justify-between gap-3">
@@ -176,19 +177,19 @@ export function ReportsPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5">
-            <h2 className="text-lg font-semibold">Open vs Resolved Alerts</h2>
+          <section className="soc-panel p-5">
+            <SectionHeader title="Open vs Resolved Alerts" icon={AlertCircle} />
             {openVsResolved ? (
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm">Open: <b>{openVsResolved.open ?? 0}</b></div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm">Investigating: <b>{openVsResolved.investigating ?? 0}</b></div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm">Escalated: <b>{openVsResolved.escalated ?? 0}</b></div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm">Resolved: <b>{openVsResolved.resolved ?? 0}</b></div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm">False Positive: <b>{openVsResolved.false_positive ?? 0}</b></div>
-                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-sm">Total: <b>{openVsResolved.total ?? 0}</b></div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 text-sm text-slate-400">Open: <b className="text-white">{openVsResolved.open ?? 0}</b></div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 text-sm text-slate-400">Investigating: <b className="text-white">{openVsResolved.investigating ?? 0}</b></div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 text-sm text-slate-400">Escalated: <b className="text-white">{openVsResolved.escalated ?? 0}</b></div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 text-sm text-slate-400">Resolved: <b className="text-white">{openVsResolved.resolved ?? 0}</b></div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 text-sm text-slate-400">False Positive: <b className="text-white">{openVsResolved.false_positive ?? 0}</b></div>
+                <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4 text-sm text-slate-400">Total: <b className="text-white">{openVsResolved.total ?? 0}</b></div>
               </div>
             ) : (
-              <p className="mt-3 text-sm text-slate-400">No data available yet. Ingest logs or run demo seed data.</p>
+              <EmptyState title="No resolution data yet" description="Alert status totals will appear here." />
             )}
           </section>
         </>

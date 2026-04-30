@@ -5,13 +5,13 @@ import { StatusBadge } from "./StatusBadge";
 
 export function AlertsTable({ alerts }: { alerts: any[] }) {
   return (
-    <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/70">
-      <div className="border-b border-slate-800 px-5 py-4"><h2 className="text-lg font-semibold">Alerts</h2></div>
+    <div className="soc-panel overflow-hidden">
+      <div className="border-b border-slate-800/80 px-5 py-4"><h2 className="text-lg font-bold text-white">Alerts</h2></div>
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-800">
-          <thead><tr><th className="px-5 py-3 text-left text-xs text-slate-400">Alert</th><th className="px-5 py-3">Severity</th><th className="px-5 py-3">Risk</th><th className="px-5 py-3">Status</th><th className="px-5 py-3">Details</th></tr></thead>
-          <tbody className="divide-y divide-slate-800">
-            {alerts.map(a => <tr key={a.id}><td className="px-5 py-4 text-white">{a.title}</td><td><SeverityBadge severity={a.severity} /></td><td><RiskBadge score={a.risk_score} /></td><td><StatusBadge status={a.status} /></td><td><Link className="text-cyan-300" to={`/alerts/${a.id}`}>Open</Link></td></tr>)}
+        <table className="soc-table">
+          <thead><tr><th>Alert</th><th>Severity</th><th>Risk</th><th>Status</th><th>Details</th></tr></thead>
+          <tbody>
+            {alerts.map(a => <tr key={a.id}><td><p className="font-semibold text-white">{a.title}</p><p className="mt-1 text-xs text-slate-500">#{a.id}</p></td><td><SeverityBadge severity={a.severity} /></td><td><RiskBadge score={a.risk_score} /></td><td><StatusBadge status={a.status} /></td><td><Link className="font-semibold text-cyan-200 hover:text-white" to={`/alerts/${a.id}`}>Open</Link></td></tr>)}
           </tbody>
         </table>
       </div>

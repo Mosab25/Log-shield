@@ -4,6 +4,7 @@ function level(score: number) {
   if (score <= 85) return "High";
   return "Critical";
 }
+
 function cls(score: number) {
   if (score <= 30) return "border-emerald-400/30 bg-emerald-400/10 text-emerald-300";
   if (score <= 60) return "border-amber-400/30 bg-amber-400/10 text-amber-300";
@@ -12,5 +13,5 @@ function cls(score: number) {
 }
 
 export function RiskBadge({ score }: { score: number }) {
-  return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${cls(score)}`}>{score} / 100 · {level(score)}</span>;
+  return <span className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs font-bold shadow-sm ${cls(score)}`}>{score} / 100 - {level(score)}</span>;
 }

@@ -8,5 +8,5 @@ const classes: Record<string, string> = {
 
 export function SeverityBadge({ severity }: { severity: string }) {
   const value = severity?.toLowerCase?.() || "info";
-  return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold capitalize ${classes[value] ?? classes.info}`}>{value}</span>;
+  return <span className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs font-bold capitalize shadow-sm ${classes[value] ?? classes.info}`}>{value}</span>;
 }

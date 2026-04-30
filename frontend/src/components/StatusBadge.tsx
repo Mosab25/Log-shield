@@ -13,5 +13,5 @@ const classes: Record<string, string> = {
 
 export function StatusBadge({ status }: { status: string }) {
   const value = status || "unknown";
-  return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold capitalize ${classes[value] ?? classes.open}`}>{value.replace("_", " ")}</span>;
+  return <span className={`inline-flex whitespace-nowrap rounded-full border px-3 py-1 text-xs font-bold capitalize shadow-sm ${classes[value] ?? classes.open}`}>{value.replace("_", " ")}</span>;
 }

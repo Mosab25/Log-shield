@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Lock, Mail, ShieldCheck, User } from "lucide-react";
 import { ApiError, apiClient } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 
@@ -57,57 +57,68 @@ export function RegisterPage() {
       setSuccess("Account created successfully. You can now log in.");
       setTimeout(() => navigate("/login"), 1500);
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Registration failed.";
-      setError(message);
+      if (err instanceof ApiError) {
+        if (err.status === 422 && typeof err.detail === "object" && err.detail !== null) {
+          const details = err.detail as Array<{ loc: string[]; msg: string; type: string }>;
+          const fieldErrors = details.map(d => d.msg).join("; ");
+          setError(fieldErrors || err.message);
+        } else {
+          setError(err.message);
+        }
+      } else if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Registration failed.");
+      }
     } finally {
       setIsSubmitting(false);
     }
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 px-5 text-slate-100">
-      <section className="w-full max-w-md rounded-3xl border border-slate-800 bg-slate-900/80 p-8 shadow-2xl">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#020817] px-4 py-8 text-slate-100">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_12%,rgba(34,211,238,0.18),transparent_34rem),linear-gradient(135deg,#020817_0%,#061227_48%,#020817_100%)]" />
+      <section className="soc-panel-strong relative z-10 w-full max-w-md p-7 sm:p-8">
         <div className="flex items-center gap-3">
-          <ShieldCheck className="h-10 w-10 text-cyan-300" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-200/25 bg-cyan-300/10 text-cyan-200">
+            <ShieldCheck className="h-7 w-7" />
+          </div>
           <div>
-            <h1 className="text-2xl font-bold">Create Account</h1>
-            <p className="text-sm text-slate-400">LogShield SOC Portal</p>
+            <p className="text-xs font-bold uppercase text-cyan-200">LogShield</p>
+            <h1 className="text-2xl font-black text-white">Create Account</h1>
           </div>
         </div>
 
         <form onSubmit={submit} className="mt-8 space-y-4" autoComplete="off">
-          <input
-            value={fullName}
-            onChange={e => setFullName(e.target.value)}
-            className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3"
-            placeholder="Full Name"
-            autoComplete="name"
-          />
-          <input
-            type="email"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-            className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3"
-            placeholder="Email"
-            autoComplete="email"
-          />
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3"
-            placeholder="Password"
-            autoComplete="new-password"
-          />
-          <p className="text-xs text-slate-400">{passwordHint}</p>
-          <input
-            type="password"
-            value={confirmPassword}
-            onChange={e => setConfirmPassword(e.target.value)}
-            className="w-full rounded-2xl border border-slate-700 bg-slate-950 px-4 py-3"
-            placeholder="Confirm Password"
-            autoComplete="new-password"
-          />
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-300">Full name</span>
+            <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3 transition focus-within:border-cyan-300/70">
+              <User className="h-5 w-5 text-cyan-200/80" />
+              <input value={fullName} onChange={e => setFullName(e.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600" placeholder="Full Name" autoComplete="name" />
+            </span>
+          </label>
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-300">Email</span>
+            <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3 transition focus-within:border-cyan-300/70">
+              <Mail className="h-5 w-5 text-cyan-200/80" />
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600" placeholder="you@company.com" autoComplete="email" />
+            </span>
+          </label>
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-300">Password</span>
+            <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3 transition focus-within:border-cyan-300/70">
+              <Lock className="h-5 w-5 text-cyan-200/80" />
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600" placeholder="Password" autoComplete="new-password" />
+            </span>
+          </label>
+          <p className="text-xs leading-5 text-slate-400">{passwordHint}</p>
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-300">Confirm password</span>
+            <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3 transition focus-within:border-cyan-300/70">
+              <Lock className="h-5 w-5 text-cyan-200/80" />
+              <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600" placeholder="Confirm Password" autoComplete="new-password" />
+            </span>
+          </label>
 
           {error ? (
             <div className="flex items-start gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-200">
@@ -123,17 +134,15 @@ export function RegisterPage() {
             </div>
           ) : null}
 
-          <button
-            disabled={isSubmitting}
-            className="w-full rounded-2xl bg-cyan-400 px-5 py-3 font-bold text-slate-950 transition-colors hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-          >
+          <button disabled={isSubmitting} className="soc-button-primary w-full py-3.5">
             {isSubmitting ? "Creating account..." : "Register"}
+            {!isSubmitting ? <ArrowRight className="h-4 w-4" /> : null}
           </button>
         </form>
 
-        <p className="mt-5 text-sm text-slate-400">
+        <p className="mt-5 text-center text-sm text-slate-400">
           Already have an account?{" "}
-          <Link to="/login" className="text-cyan-300 hover:text-cyan-200">
+          <Link to="/login" className="font-semibold text-cyan-200 hover:text-white">
             Sign in
           </Link>
         </p>

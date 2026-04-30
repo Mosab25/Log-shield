@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ShieldAlert } from "lucide-react";
+import { AlertTriangle, ShieldAlert } from "lucide-react";
 import { apiClient } from "../api/client";
 import { Pagination } from "../components/Pagination";
 import { RiskBadge } from "../components/RiskBadge";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { StatusBadge } from "../components/StatusBadge";
+import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
 
 const ATTACK_TYPE_COLORS: Record<string, string> = {
   brute_force: "bg-red-500/20 text-red-300 border-red-500/30",
@@ -29,7 +30,7 @@ function AttackTypeBadge({ type }: { type: string | null }) {
   if (!type) return null;
   const color = ATTACK_TYPE_COLORS[type] ?? "bg-slate-500/20 text-slate-300 border-slate-500/30";
   const label = ATTACK_TYPE_LABELS[type] ?? type.replace(/_/g, " ");
-  return <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-xs font-semibold ${color}`}><ShieldAlert className="h-3 w-3" />{label}</span>;
+  return <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-bold ${color}`}><ShieldAlert className="h-3 w-3" />{label}</span>;
 }
 
 export function AlertsPage() {
@@ -38,35 +39,98 @@ export function AlertsPage() {
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
   const [severity, setSeverity] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<number | null>(null);
   const pageSize = 10;
 
   async function load() {
-    const p = new URLSearchParams({ skip: String((page-1)*pageSize), limit: String(pageSize) });
-    if (status) p.set("status", status); if (severity) p.set("severity", severity);
-    const res = await apiClient.get<any>(`/alerts?${p.toString()}`);
-    setAlerts(res.items); setTotal(res.total);
+    setLoading(true);
+    setError(null);
+    try {
+      const p = new URLSearchParams({ skip: String((page - 1) * pageSize), limit: String(pageSize) });
+      if (status) p.set("status", status);
+      if (severity) p.set("severity", severity);
+      const res = await apiClient.get<any>(`/alerts?${p.toString()}`);
+      setAlerts(Array.isArray(res.items) ? res.items : []);
+      setTotal(Number(res.total ?? 0));
+    } catch (err: any) {
+      setAlerts([]);
+      setTotal(0);
+      setError(err?.message || "Failed to load alerts.");
+    } finally {
+      setLoading(false);
+    }
   }
+
   useEffect(() => { void load(); }, [page, status, severity]);
 
   async function updateStatus(id: number, next: string) {
     if (!next) return;
-    await apiClient.patch(`/alerts/${id}/status`, { status: next, comment: "Updated from alerts page." });
-    await load();
+    setUpdatingId(id);
+    try {
+      await apiClient.patch(`/alerts/${id}/status`, { status: next, comment: "Updated from alerts page." });
+      await load();
+    } finally {
+      setUpdatingId(null);
+    }
   }
 
   return (
     <div className="space-y-6">
-      <section><p className="text-sm uppercase tracking-[.3em] text-cyan-300">Alerts</p><h1 className="mt-3 text-3xl font-bold text-white">Alert Management</h1></section>
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5 flex gap-3">
-        <select value={severity} onChange={e=>setSeverity(e.target.value)} className="rounded-2xl bg-slate-950 px-4 py-2"><option value="">All severities</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
-        <select value={status} onChange={e=>setStatus(e.target.value)} className="rounded-2xl bg-slate-950 px-4 py-2"><option value="">All statuses</option><option value="open">Open</option><option value="investigating">Investigating</option><option value="resolved">Resolved</option><option value="false_positive">False Positive</option><option value="escalated">Escalated</option></select>
+      <PageHeader eyebrow="Alerts" title="Alert Management" description="Prioritize, inspect, and update detection alerts with severity, risk, and status context." icon={AlertTriangle} />
+
+      <section className="soc-panel p-5">
+        <div className="grid gap-3 md:grid-cols-3">
+          <select value={severity} onChange={e => { setSeverity(e.target.value); setPage(1); }} className="soc-input">
+            <option value="">All severities</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option>
+          </select>
+          <select value={status} onChange={e => { setStatus(e.target.value); setPage(1); }} className="soc-input">
+            <option value="">All statuses</option><option value="open">Open</option><option value="investigating">Investigating</option><option value="resolved">Resolved</option><option value="false_positive">False Positive</option><option value="escalated">Escalated</option>
+          </select>
+          <button onClick={() => void load()} className="soc-button-ghost">Refresh Alerts</button>
+        </div>
       </section>
-      <div className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/70">
-        <table className="min-w-full divide-y divide-slate-800"><tbody className="divide-y divide-slate-800">
-          {alerts.map(a => <tr key={a.id}><td className="px-5 py-4"><div className="flex items-center gap-2 mb-1"><AttackTypeBadge type={a.attack_type} /></div><p className="font-semibold">{a.title}</p><p className="text-xs text-slate-500">{a.source_ip ?? "—"} · {a.username ?? "unknown"}</p>{a.mitre_tactic && <p className="text-xs text-cyan-400/70 mt-1">MITRE: {a.mitre_tactic}{a.mitre_technique ? ` → ${a.mitre_technique}` : ""}</p>}</td><td className="px-3"><SeverityBadge severity={a.severity} /></td><td className="px-3"><RiskBadge score={a.risk_score} /></td><td className="px-3"><StatusBadge status={a.status} /><select defaultValue="" onChange={e=>void updateStatus(a.id, e.target.value)} className="mt-2 block rounded-xl bg-slate-950 px-2 py-1 text-xs"><option value="">Change</option><option value="investigating">Investigating</option><option value="resolved">Resolved</option><option value="false_positive">False Positive</option><option value="escalated">Escalated</option></select></td><td className="px-3"><Link className="text-cyan-300" to={`/alerts/${a.id}`}>Open</Link></td></tr>)}
-        </tbody></table>
-        <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
-      </div>
+
+      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {loading ? <SkeletonRows rows={6} /> : null}
+
+      {!loading ? (
+        <div className="soc-panel overflow-hidden">
+          {alerts.length === 0 ? (
+            <div className="p-5"><EmptyState title="No alerts found" description="No alerts match the current filters." icon={ShieldAlert} /></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="soc-table">
+                <thead><tr><th>Alert</th><th>Severity</th><th>Risk</th><th>Status</th><th>Open</th></tr></thead>
+                <tbody>
+                  {alerts.map(a => (
+                    <tr key={a.id}>
+                      <td>
+                        <div className="mb-2 flex flex-wrap items-center gap-2"><AttackTypeBadge type={a.attack_type} /></div>
+                        <p className="font-bold text-white">{a.title}</p>
+                        <p className="text-xs text-slate-500">{a.source_ip ?? "N/A"} - {a.username ?? "unknown"}</p>
+                        {a.mitre_tactic && <p className="mt-1 text-xs text-cyan-300/75">MITRE: {a.mitre_tactic}{a.mitre_technique ? ` -> ${a.mitre_technique}` : ""}</p>}
+                      </td>
+                      <td><SeverityBadge severity={a.severity} /></td>
+                      <td><RiskBadge score={a.risk_score} /></td>
+                      <td>
+                        <StatusBadge status={a.status} />
+                        <select disabled={updatingId === a.id} defaultValue="" onChange={e => void updateStatus(a.id, e.target.value)} className="soc-input mt-2 block py-1.5 text-xs">
+                          <option value="">{updatingId === a.id ? "Updating..." : "Change"}</option>
+                          <option value="investigating">Investigating</option><option value="resolved">Resolved</option><option value="false_positive">False Positive</option><option value="escalated">Escalated</option>
+                        </select>
+                      </td>
+                      <td><Link className="font-semibold text-cyan-200 hover:text-white" to={`/alerts/${a.id}`}>Open</Link></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <Pagination page={page} pageSize={pageSize} total={total} onPageChange={setPage} />
+        </div>
+      ) : null}
     </div>
   );
 }

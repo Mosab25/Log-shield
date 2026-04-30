@@ -1,6 +1,8 @@
 import { FormEvent, useState } from "react";
+import { CheckCircle2, Settings, UserCircle } from "lucide-react";
 import { apiClient } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { ErrorState, PageHeader, SectionHeader } from "../components/UI";
 
 export function SettingsPage() {
   const { user, refreshUser } = useAuth();
@@ -8,13 +10,66 @@ export function SettingsPage() {
   const [email, setEmail] = useState(user?.email ?? "");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
-  async function save(e: FormEvent) { e.preventDefault(); if (!user) return; await apiClient.patch(`/users/${user.id}`, { full_name: fullName, email, password: password || undefined }); await refreshUser(); setPassword(""); setMessage("Settings updated."); }
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!user || saving) return;
+    setSaving(true);
+    setError(null);
+    setMessage("");
+    try {
+      await apiClient.patch(`/users/${user.id}`, { full_name: fullName, email, password: password || undefined });
+      await refreshUser();
+      setPassword("");
+      setMessage("Settings updated.");
+    } catch (err: any) {
+      setError(err?.message || "Failed to update settings.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <section><p className="text-sm uppercase tracking-[.3em] text-cyan-300">Admin</p><h1 className="mt-3 text-3xl font-bold">Settings</h1></section>
-      {message && <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4 text-emerald-200">{message}</div>}
-      <form onSubmit={save} className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6 space-y-4 max-w-2xl"><h2 className="text-xl font-semibold">Profile Info</h2><input value={fullName} onChange={e=>setFullName(e.target.value)} className="w-full rounded-2xl bg-slate-950 px-4 py-2" /><input value={email} onChange={e=>setEmail(e.target.value)} className="w-full rounded-2xl bg-slate-950 px-4 py-2" /><input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="New password" className="w-full rounded-2xl bg-slate-950 px-4 py-2" /><button className="rounded-2xl bg-cyan-400 px-5 py-2 font-bold text-slate-950">Save</button></form>
-      <section className="rounded-3xl border border-slate-800 bg-slate-900/70 p-6"><h2 className="text-xl font-semibold">Basic App Settings</h2><p className="mt-2 text-slate-400">App Name: LogShield · Theme: Dark SOC Theme · Timezone: UTC</p></section>
+      <PageHeader eyebrow="Admin" title="Settings" description="Manage profile details and review local console preferences." icon={Settings} />
+
+      {message ? (
+        <div className="flex items-center gap-2 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4 text-emerald-200">
+          <CheckCircle2 className="h-5 w-5" />
+          {message}
+        </div>
+      ) : null}
+      {error ? <ErrorState message={error} /> : null}
+
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,42rem)_1fr]">
+        <form onSubmit={save} className="soc-panel space-y-4 p-6">
+          <SectionHeader title="Profile Info" description="Update your operator identity and optionally set a new password." icon={UserCircle} />
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-300">Full name</span>
+            <input value={fullName} onChange={e => setFullName(e.target.value)} className="soc-input mt-2 w-full" />
+          </label>
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-300">Email</span>
+            <input value={email} onChange={e => setEmail(e.target.value)} className="soc-input mt-2 w-full" />
+          </label>
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-300">New password</span>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Leave blank to keep current password" className="soc-input mt-2 w-full" />
+          </label>
+          <button disabled={saving} className="soc-button-primary">{saving ? "Saving..." : "Save Settings"}</button>
+        </form>
+
+        <section className="soc-panel p-6">
+          <SectionHeader title="Console Preferences" icon={Settings} />
+          <div className="space-y-3 text-sm">
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/75 p-4 text-slate-400">App Name: <b className="text-white">LogShield</b></div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/75 p-4 text-slate-400">Theme: <b className="text-white">Dark SOC Theme</b></div>
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/75 p-4 text-slate-400">Timezone: <b className="text-white">UTC</b></div>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }
