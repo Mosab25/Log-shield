@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
     smtp_timeout_seconds: int = Field(default=15, alias="SMTP_TIMEOUT_SECONDS")
 
+    root_admin_email: str = Field(default="admin@logshield.demo", alias="ROOT_ADMIN_EMAIL")
+
+    # URL Scanner Configuration
+    url_reputation_provider: str = Field(default="virustotal", alias="URL_REPUTATION_PROVIDER")
+    virustotal_api_key: str = Field(default="", alias="VIRUSTOTAL_API_KEY")
+    url_scan_cache_ttl_hours: int = Field(default=24, alias="URL_SCAN_CACHE_TTL_HOURS")
+    url_scan_rate_limit_per_minute: int = Field(default=10, alias="URL_SCAN_RATE_LIMIT_PER_MINUTE")
+
     nvd_api_base_url: str = Field(default="https://services.nvd.nist.gov/rest/json/cves/2.0", alias="NVD_API_BASE_URL")
     nvd_api_key: str = Field(default="", alias="NVD_API_KEY")
     nvd_results_per_page: int = Field(default=20, alias="NVD_RESULTS_PER_PAGE")

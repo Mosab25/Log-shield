@@ -30,6 +30,8 @@ export function DashboardPage() {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [topUsers, setTopUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [chartsLoading, setChartsLoading] = useState(true);
+  const [secondaryLoading, setSecondaryLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
 
@@ -40,32 +42,65 @@ export function DashboardPage() {
     const q = query(applied);
     const topUsersUrl = `/dashboard/top-attacked-users${q ? `${q}&limit=5` : "?limit=5"}`;
     const recentEventsUrl = `/dashboard/recent-events${q ? `${q}&limit=10` : "?limit=10"}`;
-    const settled = await Promise.allSettled([
-      apiClient.get<any>(`/dashboard/summary${q}`),
-      apiClient.get<any>(`/dashboard/alerts-timeline${q}`),
-      apiClient.get<any>(`/dashboard/risk-distribution${q}`),
-      apiClient.get<any>(topUsersUrl),
-      apiClient.get<any>(recentEventsUrl),
-      apiClient.get<any>("/alerts?limit=8"),
-    ]);
-
-    const [s, t, r, u, e, a] = settled;
-
-    setSummary(s.status === "fulfilled" ? s.value : null);
-    setTimeline(t.status === "fulfilled" && Array.isArray(t.value?.items) ? t.value.items : []);
-    setRisk(r.status === "fulfilled" && Array.isArray(r.value?.items) ? r.value.items : []);
-    setTopUsers(u.status === "fulfilled" && Array.isArray(u.value?.items) ? u.value.items : []);
-    setEvents(e.status === "fulfilled" && Array.isArray(e.value?.items) ? e.value.items : []);
-    setAlerts(a.status === "fulfilled" && Array.isArray(a.value?.items) ? a.value.items : []);
-
-    const failures = settled.filter(item => item.status === "rejected").length;
-    if (failures === settled.length) {
-      setError("Failed to load dashboard data. Please try again.");
-    } else if (failures > 0) {
-      setError("Some dashboard sections could not be loaded. Showing available data.");
+    
+    // Progressive loading: Load critical data first
+    try {
+      // Phase 1: Load summary (most important)
+      const summaryResult = await apiClient.get<any>(`/dashboard/summary${q}`);
+      setSummary(summaryResult);
+      setLoading(false); // Show UI immediately after summary loads
+      
+      // Phase 2: Load charts in parallel (less critical)
+      setChartsLoading(true);
+      const chartsPromise = Promise.allSettled([
+        apiClient.get<any>(`/dashboard/alerts-timeline${q}`),
+        apiClient.get<any>(`/dashboard/risk-distribution${q}`),
+      ]);
+      
+      // Phase 3: Load secondary data
+      setSecondaryLoading(true);
+      const secondaryPromise = Promise.allSettled([
+        apiClient.get<any>(topUsersUrl),
+        apiClient.get<any>(recentEventsUrl),
+        apiClient.get<any>("/alerts?limit=8"),
+      ]);
+      
+      // Wait for charts
+      const [t, r] = await chartsPromise;
+      setTimeline(t.status === "fulfilled" && Array.isArray(t.value?.items) ? t.value.items : []);
+      setRisk(r.status === "fulfilled" && Array.isArray(r.value?.items) ? r.value.items : []);
+      setChartsLoading(false);
+      
+      // Wait for secondary data
+      const [u, e, a] = await secondaryPromise;
+      setTopUsers(u.status === "fulfilled" && Array.isArray(u.value?.items) ? u.value.items : []);
+      setEvents(e.status === "fulfilled" && Array.isArray(e.value?.items) ? e.value.items : []);
+      setAlerts(a.status === "fulfilled" && Array.isArray(a.value?.items) ? a.value.items : []);
+      setSecondaryLoading(false);
+      
+      // Check for any failures
+      const allResults = [summaryResult, t, r, u, e, a];
+      const failures = allResults.filter(item => item.status === "rejected").length;
+      
+      if (failures > 0) {
+        const failedEndpoints = [];
+        if (t.status === "rejected") failedEndpoints.push("timeline");
+        if (r.status === "rejected") failedEndpoints.push("risk-distribution");
+        if (u.status === "rejected") failedEndpoints.push("top-users");
+        if (e.status === "rejected") failedEndpoints.push("recent-events");
+        if (a.status === "rejected") failedEndpoints.push("alerts");
+        
+        console.error("Dashboard failed endpoints:", failedEndpoints);
+        setError(`Some dashboard sections could not be loaded. Failed: ${failedEndpoints.join(", ")}. Showing available data.`);
+      }
+      
+    } catch (error) {
+      console.error("Critical dashboard error:", error);
+      setError("Failed to load dashboard summary. Please try again.");
+      setLoading(false);
+      setChartsLoading(false);
+      setSecondaryLoading(false);
     }
-
-    setLoading(false);
   }
 
   useEffect(() => {
@@ -126,38 +161,64 @@ export function DashboardPage() {
           </section>
 
           <section className="grid gap-6 xl:grid-cols-2">
-            {timeline.length > 0 ? (
-              <TimelineChart data={timeline} />
+            {chartsLoading ? (
+              <>
+                <SkeletonBlock className="h-80" />
+                <SkeletonBlock className="h-80" />
+              </>
             ) : (
-              <div className="soc-panel h-80 p-5"><EmptyState title="No timeline data" description="Alert activity over time will appear here." /></div>
-            )}
-            {risk.length > 0 ? (
-              <RiskDistributionChart data={risk} />
-            ) : (
-              <div className="soc-panel h-80 p-5"><EmptyState title="No risk distribution" description="Risk buckets will appear when scored events are available." /></div>
+              <>
+                {timeline.length > 0 ? (
+                  <TimelineChart data={timeline} />
+                ) : (
+                  <div className="soc-panel h-80 p-5"><EmptyState title="No timeline data" description="Alert activity over time will appear here." /></div>
+                )}
+                {risk.length > 0 ? (
+                  <RiskDistributionChart data={risk} />
+                ) : (
+                  <div className="soc-panel h-80 p-5"><EmptyState title="No risk distribution" description="Risk buckets will appear when scored events are available." /></div>
+                )}
+              </>
             )}
           </section>
 
           <section className="soc-panel p-5">
             <SectionHeader title="Top Attacked Users" icon={Users} />
-            {topUsers.length === 0 ? (
-              <EmptyState title="No targeted users yet" description="User targeting trends will appear after relevant alerts are created." />
-            ) : (
-              <div className="grid gap-3 lg:grid-cols-2">
-                {topUsers.map((user: any) => (
-                  <div key={user.username} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/75 px-4 py-3 text-sm">
-                    <span className="font-bold text-slate-100">{user.username}</span>
-                    <span className="text-slate-400">Alerts: {user.alert_count ?? 0}</span>
-                    <span className="text-slate-400">Logs: {user.log_count ?? 0}</span>
-                    <span className="text-slate-400">Max Risk: {user.max_risk_score ?? 0}</span>
-                  </div>
-                ))}
+            {secondaryLoading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, index) => <SkeletonBlock key={index} className="h-12" />)}
               </div>
+            ) : (
+              <>
+                {topUsers.length === 0 ? (
+                  <EmptyState title="No targeted users yet" description="User targeting trends will appear after relevant alerts are created." />
+                ) : (
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    {topUsers.map((user: any) => (
+                      <div key={user.username} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/75 px-4 py-3 text-sm">
+                        <span className="font-bold text-slate-100">{user.username}</span>
+                        <span className="text-slate-400">Alerts: {user.alert_count ?? 0}</span>
+                        <span className="text-slate-400">Logs: {user.log_count ?? 0}</span>
+                        <span className="text-slate-400">Max Risk: {user.max_risk_score ?? 0}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </section>
 
-          {events.length > 0 ? <LogsTable logs={events} /> : <EmptyState title="No recent security events" description="Recent parsed security events will appear here." />}
-          {alerts.length > 0 ? <AlertsTable alerts={alerts} /> : <EmptyState title="No recent alerts" description="New alerts will appear here as rules detect risky activity." />}
+          {secondaryLoading ? (
+            <div className="space-y-6">
+              <SkeletonBlock className="h-40" />
+              <SkeletonBlock className="h-40" />
+            </div>
+          ) : (
+            <>
+              {events.length > 0 ? <LogsTable logs={events} /> : <EmptyState title="No recent security events" description="Recent parsed security events will appear here." />}
+              {alerts.length > 0 ? <AlertsTable alerts={alerts} /> : <EmptyState title="No recent alerts" description="New alerts will appear here as rules detect risky activity." />}
+            </>
+          )}
         </>
       ) : null}
     </div>

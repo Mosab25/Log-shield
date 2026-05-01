@@ -6,6 +6,11 @@ from app.models.alert_threat_link import AlertThreatLink
 from app.models.analyst_note import AnalystNote
 from app.models.audit_log import AuditLog
 from app.models.detection_rule import DetectionRule
+from app.models.incident import Incident
+from app.models.incident_alert import IncidentAlert
+from app.models.incident_evidence import IncidentEvidence
+from app.models.incident_note import IncidentNote
+from app.models.incident_timeline import IncidentTimeline
 from app.models.ip_block import IPBlock
 from app.models.normalized_log import NormalizedLog
 from app.models.raw_log import RawLog
@@ -30,6 +35,11 @@ __all__ = [
     "AnalystNote",
     "AuditLog",
     "DetectionRule",
+    "Incident",
+    "IncidentAlert",
+    "IncidentEvidence",
+    "IncidentNote",
+    "IncidentTimeline",
     "IPBlock",
     "NormalizedLog",
     "RawLog",

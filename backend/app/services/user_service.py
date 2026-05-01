@@ -6,11 +6,17 @@ from fastapi import HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import get_password_hash
 from app.models.role import Role
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
 from app.services.audit_service import AuditService
+
+
+def _is_root_admin(user: User) -> bool:
+    root_email = settings.root_admin_email.strip().lower()
+    return bool(root_email and user.email.strip().lower() == root_email)
 
 
 class UserService:
@@ -90,6 +96,16 @@ class UserService:
     def update_user(cls, *, db: Session, user_id: int, payload: UserUpdate, actor_user_id: int) -> User:
         user = cls.get_user_by_id(db, user_id)
 
+        if _is_root_admin(user):
+            if payload.is_active is False:
+                AuditService.create_audit_log(db=db, actor_user_id=actor_user_id, action="root_admin_deactivate_blocked", entity_type="user", entity_id=str(user.id), details={"email": user.email})
+                db.commit()
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Root admin cannot be deactivated.")
+            if payload.role_name is not None or (payload.email is not None and payload.email.strip().lower() != user.email.strip().lower()):
+                AuditService.create_audit_log(db=db, actor_user_id=actor_user_id, action="root_admin_modify_blocked", entity_type="user", entity_id=str(user.id), details={"email": user.email})
+                db.commit()
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Root admin email or role cannot be changed.")
+
         if payload.email is not None and payload.email != user.email:
             exists = db.execute(select(User).where(User.email == payload.email, User.id != user.id)).scalar_one_or_none()
             if exists:
@@ -129,6 +145,10 @@ class UserService:
         user = cls.get_user_by_id(db, user_id)
         if user.id == actor_user_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Admins cannot deactivate their own account.")
+        if _is_root_admin(user):
+            AuditService.create_audit_log(db=db, actor_user_id=actor_user_id, action="root_admin_deactivate_blocked", entity_type="user", entity_id=str(user.id), details={"email": user.email})
+            db.commit()
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Root admin cannot be deactivated.")
         user.is_active = False
         AuditService.create_audit_log(db=db, actor_user_id=actor_user_id, action="users.deactivate", entity_type="user", entity_id=str(user.id), details={"email": user.email})
         db.commit()
@@ -140,6 +160,10 @@ class UserService:
         user = cls.get_user_by_id(db, user_id)
         if user.id == actor_user_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Admins cannot change their own role.")
+        if _is_root_admin(user) and role_name != "admin":
+            AuditService.create_audit_log(db=db, actor_user_id=actor_user_id, action="root_admin_role_downgrade_blocked", entity_type="user", entity_id=str(user.id), details={"email": user.email, "attempted_role": role_name})
+            db.commit()
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Root admin role cannot be downgraded.")
         role = cls.get_role_by_name(db, role_name)
         old_role = user.role.name if user.role else None
         user.role_id = role.id

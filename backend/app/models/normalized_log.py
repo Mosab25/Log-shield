@@ -46,4 +46,7 @@ class NormalizedLog(Base):
     __table_args__ = (
         Index("ix_normalized_logs_type_ip_time", "event_type", "src_ip", "event_time"),
         Index("ix_normalized_logs_user_time", "username", "event_time"),
+        Index("ix_normalized_logs_source_time", "source", "event_time"),
+        Index("ix_normalized_logs_severity_time", "severity", "event_time"),
+        Index("ix_normalized_logs_ip_user", "src_ip", "username"),
     )

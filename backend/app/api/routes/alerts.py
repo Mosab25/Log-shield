@@ -20,13 +20,52 @@ router = APIRouter()
 
 @router.get("/stats/summary", response_model=AlertStatsSummaryResponse)
 def stats(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst","viewer"))]):
-    alerts = db.execute(select(Alert)).scalars().all()
+    # Use aggregated SQL queries instead of loading all alerts
+    total_alerts = db.execute(select(func.count(Alert.id))).scalar_one()
+    
+    # Status counts
+    status_counts = db.execute(
+        select(Alert.status, func.count(Alert.id)).group_by(Alert.status)
+    ).all()
     by_status = {k:0 for k in ["open","investigating","resolved","false_positive","escalated"]}
+    for status, count in status_counts:
+        by_status[status] = int(count)
+    
+    # Severity counts
+    severity_counts = db.execute(
+        select(Alert.severity, func.count(Alert.id)).group_by(Alert.severity)
+    ).all()
     by_severity = {k:0 for k in ["low","medium","high","critical"]}
-    for a in alerts:
-        by_status[a.status] = by_status.get(a.status, 0) + 1
-        by_severity[a.severity] = by_severity.get(a.severity, 0) + 1
-    return AlertStatsSummaryResponse(total_alerts=len(alerts), by_status=by_status, by_severity=by_severity, high_risk_open_alerts=sum(a.risk_score>=61 and a.status in {"open","investigating","escalated"} for a in alerts), unassigned_open_alerts=sum(a.status=="open" and a.assigned_to_id is None for a in alerts), average_risk_score=round(sum(a.risk_score for a in alerts)/len(alerts),2) if alerts else 0)
+    for severity, count in severity_counts:
+        by_severity[severity] = int(count)
+    
+    # High-risk open alerts
+    high_risk_open = db.execute(
+        select(func.count(Alert.id)).where(
+            Alert.risk_score >= 61,
+            Alert.status.in_(["open","investigating","escalated"])
+        )
+    ).scalar_one()
+    
+    # Unassigned open alerts
+    unassigned_open = db.execute(
+        select(func.count(Alert.id)).where(
+            Alert.status == "open",
+            Alert.assigned_to_id.is_(None)
+        )
+    ).scalar_one()
+    
+    # Average risk score
+    avg_risk = db.execute(select(func.avg(Alert.risk_score))).scalar_one()
+    
+    return AlertStatsSummaryResponse(
+        total_alerts=int(total_alerts),
+        by_status=by_status,
+        by_severity=by_severity,
+        high_risk_open_alerts=int(high_risk_open),
+        unassigned_open_alerts=int(unassigned_open),
+        average_risk_score=round(float(avg_risk or 0), 2)
+    )
 
 
 @router.get("", response_model=AlertListResponse)

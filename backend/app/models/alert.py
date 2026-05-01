@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from app.models.alert_threat_link import AlertThreatLink
     from app.models.analyst_note import AnalystNote
     from app.models.detection_rule import DetectionRule
+    from app.models.incident_alert import IncidentAlert
     from app.models.normalized_log import NormalizedLog
     from app.models.risk_score import RiskScore
     from app.models.threat_entry import ThreatEntry
@@ -44,7 +45,11 @@ class Alert(Base):
     analyst_notes: Mapped[list["AnalystNote"]] = relationship("AnalystNote", back_populates="alert", cascade="all, delete-orphan")
     risk_scores: Mapped[list["RiskScore"]] = relationship("RiskScore", back_populates="alert")
     threat_links: Mapped[list["AlertThreatLink"]] = relationship("AlertThreatLink", back_populates="alert", cascade="all, delete-orphan")
+    incident_links: Mapped[list["IncidentAlert"]] = relationship("IncidentAlert", back_populates="alert", cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_alerts_status_risk", "status", "risk_score"),
+        Index("ix_alerts_created_at", "created_at"),
+        Index("ix_alerts_severity_status", "severity", "status"),
+        Index("ix_alerts_risk_created", "risk_score", "created_at"),
     )

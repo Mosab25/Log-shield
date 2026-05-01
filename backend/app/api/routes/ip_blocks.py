@@ -47,7 +47,11 @@ def list_ip_blocks(
 
 
 @router.post("", response_model=IPBlockResponse, status_code=201)
-def create_ip_block(payload: IPBlockCreate, db: Annotated[Session, Depends(get_db)], current_admin: Annotated[User, Depends(require_admin)]) -> IPBlockResponse:
+def create_ip_block(payload: IPBlockCreate, request: Request, db: Annotated[Session, Depends(get_db)], current_admin: Annotated[User, Depends(require_admin)]) -> IPBlockResponse:
+    admin_ip = get_client_ip(request)
+    if payload.ip_address == admin_ip:
+        from fastapi import HTTPException, status as st
+        raise HTTPException(status_code=st.HTTP_400_BAD_REQUEST, detail="Cannot block your own current IP address.")
     block = IPBlockService.create_block(
         db=db,
         ip_address=payload.ip_address,

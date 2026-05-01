@@ -24,6 +24,16 @@ from app.services.audit_service import AuditService
 
 class ReportService:
     @staticmethod
+    def _csv_safe(value: str | int | float | None) -> str | int | float | None:
+        """Escape CSV injection: prefix dangerous chars (=, +, -, @) with a single quote."""
+        if value is None:
+            return ""
+        s = str(value)
+        if s and s[0] in ("=", "+", "-", "@", "\t", "\r", "\n"):
+            return f"'{s}"
+        return s
+
+    @staticmethod
     def _range(start_date=None, end_date=None, days=7):
         end = end_date or datetime.now(timezone.utc)
         start = start_date or (end - timedelta(days=days))
@@ -132,7 +142,7 @@ class ReportService:
         writer.writerow(["alert_id","title","severity","risk_score","status","created_at","resolved_at","mitre_tactic","mitre_technique","source_ips","usernames"])
         for a in alerts:
             logs=AlertService.related_logs(db,a)
-            writer.writerow([a.id,a.title,a.severity,a.risk_score,a.status,a.created_at.isoformat(),a.resolved_at.isoformat() if a.resolved_at else "",a.detection_rule.mitre_tactic if a.detection_rule else "",a.detection_rule.mitre_technique if a.detection_rule else "", ";".join(sorted({l.src_ip for l in logs if l.src_ip})), ";".join(sorted({l.username for l in logs if l.username}))])
+            writer.writerow([cls._csv_safe(a.id),cls._csv_safe(a.title),cls._csv_safe(a.severity),cls._csv_safe(a.risk_score),cls._csv_safe(a.status),cls._csv_safe(a.created_at.isoformat()),cls._csv_safe(a.resolved_at.isoformat() if a.resolved_at else ""),cls._csv_safe(a.detection_rule.mitre_tactic if a.detection_rule else ""),cls._csv_safe(a.detection_rule.mitre_technique if a.detection_rule else ""), cls._csv_safe(";".join(sorted({l.src_ip for l in logs if l.src_ip}))), cls._csv_safe(";".join(sorted({l.username for l in logs if l.username})))])
         AuditService.create_audit_log(db=db,actor_user_id=current_user.id,action="reports.export_csv",entity_type="report",entity_id="csv",details={"rows":len(alerts)})
         db.commit()
         return output.getvalue()

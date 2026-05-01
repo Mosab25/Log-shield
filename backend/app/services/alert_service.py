@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from sqlalchemy import func, select
+from sqlalchemy import func, select, and_, or_
 from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 
@@ -127,30 +127,70 @@ class AlertService:
 
     @classmethod
     def list_alerts(cls, *, db: Session, skip: int, limit: int, status_filter: str | None, severity: str | None, assigned_to_id: int | None, source_ip: str | None, username: str | None, min_risk_score: int | None, max_risk_score: int | None, start_date, end_date) -> tuple[int, list[dict]]:
+        # Build base query with joins for filtering
         query = select(Alert).options(
             joinedload(Alert.normalized_log),
             joinedload(Alert.detection_rule),
             joinedload(Alert.assigned_to).joinedload(User.role),
         )
         count_query = select(func.count(Alert.id))
+        
         filters = []
-        if status_filter: filters.append(Alert.status == status_filter)
-        if severity: filters.append(Alert.severity == severity)
-        if assigned_to_id is not None: filters.append(Alert.assigned_to_id == assigned_to_id)
-        if min_risk_score is not None: filters.append(Alert.risk_score >= min_risk_score)
-        if max_risk_score is not None: filters.append(Alert.risk_score <= max_risk_score)
-        if start_date: filters.append(Alert.created_at >= start_date)
-        if end_date: filters.append(Alert.created_at <= end_date)
+        # Apply all filters at SQL level
+        if status_filter: 
+            filters.append(Alert.status == status_filter)
+        if severity: 
+            filters.append(Alert.severity == severity)
+        if assigned_to_id is not None: 
+            filters.append(Alert.assigned_to_id == assigned_to_id)
+        if min_risk_score is not None: 
+            filters.append(Alert.risk_score >= min_risk_score)
+        if max_risk_score is not None: 
+            filters.append(Alert.risk_score <= max_risk_score)
+        if start_date: 
+            filters.append(Alert.created_at >= start_date)
+        if end_date: 
+            filters.append(Alert.created_at <= end_date)
+        
+        # Handle source_ip and username filtering via subquery for better performance
+        if source_ip or username:
+            # Build conditions for direct and related logs
+            direct_conditions = []
+            related_conditions = []
+            
+            if source_ip:
+                direct_conditions.append(NormalizedLog.src_ip == source_ip)
+                related_conditions.append(NormalizedLog.src_ip == source_ip)
+            
+            if username:
+                direct_conditions.append(NormalizedLog.username == username)
+                related_conditions.append(NormalizedLog.username == username)
+            
+            # Create subquery to find alerts with matching logs
+            matching_alert_ids = select(Alert.id).where(
+                or_(
+                    # Direct normalized_log match
+                    Alert.normalized_log_id.in_(
+                        select(NormalizedLog.id).where(and_(*direct_conditions))
+                    ),
+                    # Related logs match
+                    Alert.id.in_(
+                        select(AlertRelatedLog.alert_id).join(NormalizedLog, AlertRelatedLog.normalized_log_id == NormalizedLog.id).where(and_(*related_conditions))
+                    )
+                )
+            )
+            filters.append(Alert.id.in_(matching_alert_ids))
+        
+        # Apply all filters to both queries
         for f in filters:
             query = query.where(f)
             count_query = count_query.where(f)
+        
         total = db.execute(count_query).scalar_one()
         alerts = db.execute(query.order_by(Alert.risk_score.desc(), Alert.created_at.desc()).offset(skip).limit(limit)).scalars().all()
         items = cls._list_items(db, list(alerts))
-        if source_ip:
-            items = [i for i in items if i["source_ip"] == source_ip]
-        if username:
-            items = [i for i in items if i["username"] == username]
+        
+        # Note: We removed Python-level filtering since it's now done in SQL
         return total, items
 
     @classmethod

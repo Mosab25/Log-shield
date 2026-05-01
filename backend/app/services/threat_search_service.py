@@ -109,12 +109,12 @@ class ThreatSearchService:
         except NVDRateLimitError:
             external_unavailable = True
             message = "NVD API rate limit exceeded. Showing local results only."
-        except NVDClientError as e:
+        except NVDClientError:
             external_unavailable = True
-            message = f"NVD API unavailable: {str(e)}. Showing local results only."
-        except Exception as e:
+            message = "NVD API is currently unavailable. Showing local results only."
+        except Exception:
             external_unavailable = True
-            message = f"Unexpected error: {str(e)}. Showing local results only."
+            message = "External threat intelligence source is temporarily unavailable. Showing local results only."
 
         merged = {}
         for r in local_results:
@@ -177,8 +177,8 @@ class ThreatSearchService:
                 return {"found": False, "source": "nvd_api", "cve_id": cve_id, "message": "CVE not found in NVD"}
             normalized = normalize_nvd_cve(vulnerabilities[0])
             return {"found": True, "source": "nvd_api", "cve_id": cve_id, "created_at": normalized["created_at"], "nvd_data": vulnerabilities[0]}
-        except NVDClientError as e:
-            return {"found": False, "source": "nvd_api", "cve_id": cve_id, "message": str(e)}
+        except NVDClientError:
+            return {"found": False, "source": "nvd_api", "cve_id": cve_id, "message": "NVD API is currently unavailable."}
 
     @staticmethod
     async def import_cve(db: Session, cve_id: str, current_user: User) -> dict[str, Any]:

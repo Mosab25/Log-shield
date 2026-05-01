@@ -1,16 +1,21 @@
-import { Activity, AlertTriangle, Ban, FileText, Globe, LayoutDashboard, ListChecks, ScrollText, Settings, ShieldAlert, ShieldCheck, Users } from "lucide-react";
+import { Activity, AlertTriangle, Ban, Briefcase, FileText, Globe, Home, LayoutDashboard, ListChecks, ScrollText, Search, Settings, Shield, ShieldAlert, ShieldCheck, Users, Wrench } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { useAuth, type UserRole } from "../auth/AuthContext";
 
 const items: Array<{ label: string; to: string; icon: any; roles?: UserRole[] }> = [
+  { label: "Home", to: "/home", icon: Home },
   { label: "Dashboard", to: "/dashboard", icon: LayoutDashboard },
   { label: "Logs", to: "/logs", icon: ScrollText },
   { label: "Alerts", to: "/alerts", icon: AlertTriangle },
   { label: "Threat Intel", to: "/threats", icon: ShieldAlert },
   { label: "CVE Search", to: "/threat-intel", icon: Globe },
   { label: "Rules", to: "/rules", icon: ListChecks },
+  { label: "SOC Tools", to: "/tools", icon: Wrench },
+  { label: "Incidents", to: "/incidents", icon: Briefcase },
   { label: "Reports", to: "/reports", icon: FileText },
+  { label: "URL Scanner", to: "/url-scanner", icon: Search },
+  { label: "Security Center", to: "/security-center", icon: Shield, roles: ["admin"] },
   { label: "Users", to: "/users", icon: Users, roles: ["admin"] },
   { label: "Audit", to: "/audit", icon: Activity, roles: ["admin"] },
   { label: "IP Blocks", to: "/blocks", icon: Ban, roles: ["admin"] },
@@ -21,7 +26,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const { role } = useAuth();
   return (
     <aside className="flex h-full flex-col">
-      <div className="border-b border-cyan-200/10 px-6 py-6">
+      <div className="border-b border-cyan-200/10 px-6 py-6 shrink-0">
         <div className="flex items-center gap-3">
           <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-200/25 bg-cyan-300/10 text-cyan-200 shadow-[0_0_35px_rgba(34,211,238,0.16)]">
             <ShieldCheck className="h-7 w-7" />
@@ -32,7 +37,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </div>
         </div>
       </div>
-      <nav className="flex-1 space-y-1.5 px-4 py-5">
+      <nav className="flex-1 space-y-1.5 px-4 py-5 overflow-y-auto">
         {items.filter(i => !i.roles || (role && i.roles.includes(role))).map(item => {
           const Icon = item.icon;
           return (
@@ -41,7 +46,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
               to={item.to}
               onClick={onNavigate}
               className={({ isActive }) =>
-                `group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+                `group flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition whitespace-nowrap ${
                   isActive
                     ? "border border-cyan-200/30 bg-cyan-300 text-slate-950 shadow-lg shadow-cyan-950/30"
                     : "border border-transparent text-slate-300 hover:border-cyan-200/10 hover:bg-white/[0.045] hover:text-white"
@@ -54,7 +59,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           );
         })}
       </nav>
-      <div className="border-t border-cyan-200/10 p-4">
+      <div className="border-t border-cyan-200/10 p-4 shrink-0">
         <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs font-semibold uppercase text-slate-400">Workspace</span>

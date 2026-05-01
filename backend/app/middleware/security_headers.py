@@ -6,6 +6,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
+from app.core.config import settings
+
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
@@ -14,8 +16,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+
+        connect_src = "'self'"
+        if settings.is_development:
+            connect_src += " http://localhost:8000 http://localhost:5173 http://localhost:8080"
+        for origin in settings.cors_origins_list:
+            if origin not in connect_src:
+                connect_src += f" {origin}"
+
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; "
-            "script-src 'self'; font-src 'self' data:; connect-src 'self' http://localhost:8000 http://localhost:5173 http://localhost:8080; frame-ancestors 'none';"
+            f"default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; "
+            f"script-src 'self'; font-src 'self' data:; connect-src {connect_src}; frame-ancestors 'none';"
         )
         return response
