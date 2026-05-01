@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urlparse
 
@@ -76,11 +77,7 @@ class URLValidator:
             # Check for localhost/internal addresses
             if cls._is_internal_hostname(parsed.hostname):
                 return False, "Internal network addresses are not allowed"
-            
-            # Check for suspicious patterns
-            if cls._has_suspicious_patterns(url):
-                return False, "URL contains suspicious patterns"
-            
+
             return True, "Valid URL"
             
         except Exception as e:
@@ -125,27 +122,32 @@ class URLValidator:
     
     @classmethod
     def _has_suspicious_patterns(cls, url: str) -> bool:
-        """Check for suspicious URL patterns."""
-        url_lower = url.lower()
-        
-        # Check for suspicious TLDs
-        for tld in cls.SUSPICIOUS_TLDS:
-            if url_lower.endswith(tld):
-                return True
-        
-        # Check for suspicious patterns
-        suspicious_patterns = [
-            r"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}",
-            r"bit\.ly",
-            r"tinyurl\.com",
-            r"short\.link",
-            r"t\.co",
-        ]
-        
-        for pattern in suspicious_patterns:
-            if re.search(pattern, url_lower):
-                return True
-        
+        """
+        Check for suspicious patterns without false positives.
+
+        This helper is intentionally non-blocking for validation. It can be
+        reused later for enrichment/scoring, but should not reject otherwise
+        valid URLs.
+        """
+        try:
+            parsed = urlparse(url.strip())
+            host = (parsed.hostname or "").lower()
+        except Exception:
+            return False
+
+        # Check suspicious TLD on hostname only (not full URL string).
+        if any(host.endswith(tld) for tld in cls.SUSPICIOUS_TLDS):
+            return True
+
+        # Check known shorteners by exact host or subdomain.
+        suspicious_hosts = {"bit.ly", "tinyurl.com", "short.link", "t.co"}
+        if host in suspicious_hosts or any(host.endswith(f".{item}") for item in suspicious_hosts):
+            return True
+
+        # Detect literal IPv4 host.
+        if re.fullmatch(r"[0-9]{1,3}(?:\.[0-9]{1,3}){3}", host):
+            return True
+
         return False
 
 
@@ -201,6 +203,43 @@ class URLScannerService:
         self.provider = get_reputation_provider()
         self.validator = URLValidator()
         self.normalizer = URLNormalizer()
+
+    @staticmethod
+    def _coerce_provider_datetime(value: Any) -> datetime | None:
+        """
+        Convert provider timestamps safely.
+
+        Providers may return datetime, ISO strings, or unix timestamps.
+        We normalize all valid values to UTC-aware datetimes.
+        """
+        if value is None:
+            return None
+
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc)
+
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+
+        if isinstance(value, str):
+            raw = value.strip()
+            if not raw:
+                return None
+
+            # Support unix timestamps provided as text.
+            if re.fullmatch(r"-?\d+(?:\.\d+)?", raw):
+                return datetime.fromtimestamp(float(raw), tz=timezone.utc)
+
+            # Support ISO strings ending in Z.
+            iso_candidate = raw.replace("Z", "+00:00")
+            parsed = datetime.fromisoformat(iso_candidate)
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+
+        return None
     
     async def scan_url(self, db: Session, url: str, user: User) -> URLScanResult:
         """Scan a URL for reputation."""
@@ -235,10 +274,10 @@ class URLScannerService:
                 suspicious_count=normalized_result["summary"]["suspicious"],
                 harmless_count=normalized_result["summary"]["harmless"],
                 undetected_count=normalized_result["summary"]["undetected"],
-                categories=str(normalized_result.get("categories", [])),
+                categories=json.dumps(normalized_result.get("categories", [])),
                 provider_reference=normalized_result["raw_reference"]["provider_id"],
                 raw_summary=str(normalized_result),
-                last_analysis_date=datetime.fromisoformat(normalized_result["last_analysis_date"]).replace(tzinfo=timezone.utc) if normalized_result.get("last_analysis_date") else None,
+                last_analysis_date=self._coerce_provider_datetime(normalized_result.get("last_analysis_date")),
                 submitted_by_user_id=user.id,
             )
             
@@ -280,7 +319,7 @@ class URLScannerService:
     async def _get_cached_result(self, db: Session, url_hash: str) -> URLScanResult | None:
         """Get cached result if available and recent."""
         cache_ttl_hours = getattr(self.provider, 'cache_ttl_hours', 24)
-        cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - datetime.timedelta(hours=cache_ttl_hours)
+        cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=cache_ttl_hours)
         
         result = db.query(URLScanResult).filter(
             URLScanResult.url_hash == url_hash,
@@ -315,7 +354,7 @@ class URLScannerService:
     
     def get_scan_statistics(self, db: Session, days: int = 7) -> dict[str, Any]:
         """Get scan statistics for the last N days."""
-        cutoff_date = datetime.now(timezone.utc) - datetime.timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
         
         total_scans = db.query(URLScanResult).filter(
             URLScanResult.created_at >= cutoff_date

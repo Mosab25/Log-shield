@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import ast
+import json
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -19,6 +21,25 @@ from app.schemas.url_scanner import (
 from app.services.url_scanner_service import URLScannerService
 
 router = APIRouter()
+
+
+def _parse_categories(raw_categories: str | None) -> list[str]:
+    if not raw_categories:
+        return []
+    try:
+        parsed = json.loads(raw_categories)
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+    except Exception:
+        pass
+    # Backward compatibility with old stored format like "['a', 'b']".
+    try:
+        parsed = ast.literal_eval(raw_categories)
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+    except Exception:
+        pass
+    return []
 
 
 @router.post("/scan", response_model=URLScanResponse)
@@ -67,7 +88,7 @@ async def scan_url(
                 "harmless": result.harmless_count,
                 "undetected": result.undetected_count,
             },
-            categories=eval(result.categories) if result.categories and result.categories.startswith('[') else [],
+            categories=_parse_categories(result.categories),
             last_analysis_date=result.last_analysis_date,
             recommendation=_get_recommendation(result.status),
             raw_reference={
@@ -183,7 +204,7 @@ def get_scan_result(
             "harmless": result.harmless_count,
             "undetected": result.undetected_count,
         },
-        categories=eval(result.categories) if result.categories and result.categories.startswith('[') else [],
+        categories=_parse_categories(result.categories),
         last_analysis_date=result.last_analysis_date,
         recommendation=_get_recommendation(result.status),
         raw_reference={
