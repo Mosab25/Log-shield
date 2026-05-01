@@ -9,35 +9,43 @@ from app.api.deps import get_current_user
 from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.auth import LoginRequest, LoginResponse, LogoutRequest, MessageResponse, RefreshResponse, RegisterRequest, RegisterResponse, TokenRefreshRequest
+from app.schemas.auth import Login2FARequiredResponse, LoginRequest, LoginResponse, LogoutRequest, MessageResponse, RefreshResponse, RegisterRequest, RegisterResponse, TokenRefreshRequest, Verify2FARequest
 from app.schemas.user import UserResponse
+from app.services.admin_2fa_service import Admin2FAService
 from app.services.auth_service import AuthService
+from app.services.ip_block_service import get_client_ip
 
 router = APIRouter()
 
 
-def _extract_source_ip(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for", "")
-    if forwarded_for:
-        ip = forwarded_for.split(",")[0].strip()
-        if ip:
-            return ip
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
-
-
-@router.post("/login", response_model=LoginResponse)
-def login(payload: LoginRequest, request: Request, db: Annotated[Session, Depends(get_db)]) -> LoginResponse:
-    source_ip = _extract_source_ip(request)
+@router.post("/login", response_model=LoginResponse | Login2FARequiredResponse)
+def login(payload: LoginRequest, request: Request, db: Annotated[Session, Depends(get_db)]) -> LoginResponse | Login2FARequiredResponse:
+    source_ip = get_client_ip(request)
     user_agent = request.headers.get("user-agent")
-    access, refresh, user = AuthService.login(db, payload, source_ip=source_ip, user_agent=user_agent)
+    result = AuthService.login(db, payload, source_ip=source_ip, user_agent=user_agent)
+    if isinstance(result, Login2FARequiredResponse):
+        return result
+    access, refresh, user = result
+    return LoginResponse(access_token=access, refresh_token=refresh, expires_in=settings.access_token_expire_minutes * 60, user=UserResponse.model_validate(user))
+
+
+@router.post("/verify-2fa", response_model=LoginResponse)
+def verify_2fa(payload: Verify2FARequest, request: Request, db: Annotated[Session, Depends(get_db)]) -> LoginResponse:
+    source_ip = get_client_ip(request)
+    user_agent = request.headers.get("user-agent")
+    access, refresh, user = Admin2FAService.verify_challenge(
+        db=db,
+        challenge_id=payload.challenge_id,
+        code=payload.code,
+        source_ip=source_ip,
+        user_agent=user_agent,
+    )
     return LoginResponse(access_token=access, refresh_token=refresh, expires_in=settings.access_token_expire_minutes * 60, user=UserResponse.model_validate(user))
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=201)
 def register(payload: RegisterRequest, request: Request, db: Annotated[Session, Depends(get_db)]) -> RegisterResponse:
-    source_ip = _extract_source_ip(request)
+    source_ip = get_client_ip(request)
     user_agent = request.headers.get("user-agent")
     user = AuthService.register(db, payload, source_ip=source_ip, user_agent=user_agent)
     return RegisterResponse(

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from app.schemas.user import UserResponse
 
 
@@ -27,6 +28,13 @@ class LoginResponse(BaseModel):
     user: UserResponse
 
 
+class Login2FARequiredResponse(BaseModel):
+    requires_2fa: Literal[True] = True
+    message: str
+    challenge_id: str
+    delivery_target: str | None = None
+
+
 class RefreshResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -35,6 +43,19 @@ class RefreshResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class Verify2FARequest(BaseModel):
+    challenge_id: str = Field(..., min_length=10, max_length=120)
+    code: str = Field(..., min_length=6, max_length=6)
+
+    @field_validator("code")
+    @classmethod
+    def validate_code(cls, value: str) -> str:
+        normalized = value.strip()
+        if len(normalized) != 6 or not normalized.isdigit():
+            raise ValueError("code must be a 6-digit value.")
+        return normalized
 
 
 class RegisterRequest(BaseModel):

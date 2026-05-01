@@ -12,6 +12,81 @@ const REFRESH_TOKEN_KEY = "logshield_refresh_token";
 const LEGACY_ACCESS_TOKEN_KEYS = ["access_token", "token", "authToken", "logshield_token"];
 const LEGACY_REFRESH_TOKEN_KEYS = ["refresh_token", "logshield_refresh"];
 
+export interface AuthUser {
+  id: number;
+  full_name: string;
+  email: string;
+  is_active: boolean;
+  role: {
+    id: number;
+    name: "admin" | "analyst" | "viewer";
+    description: string | null;
+    created_at: string;
+  };
+  last_login_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LoginSuccessResponse {
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
+  expires_in: number;
+  user: AuthUser;
+}
+
+export interface Login2FARequiredResponse {
+  requires_2fa: true;
+  message: string;
+  challenge_id: string;
+  delivery_target?: string | null;
+}
+
+export interface Verify2FARequest {
+  challenge_id: string;
+  code: string;
+}
+
+export interface BlockedAccessDetails {
+  detail: string;
+  code?: "IP_BLOCKED";
+  ip_address: string;
+  reason: string | null;
+  blocked_until: string | null;
+  is_permanent: boolean;
+}
+
+export interface SelfBlockCheckResponse {
+  blocked: boolean;
+  ip_address: string;
+  reason: string | null;
+  blocked_until: string | null;
+  is_permanent: boolean;
+}
+
+type BlockedAccessListener = (details: BlockedAccessDetails | null) => void;
+let blockedAccessDetails: BlockedAccessDetails | null = null;
+const blockedAccessListeners = new Set<BlockedAccessListener>();
+
+export const blockedAccessStore = {
+  getSnapshot(): BlockedAccessDetails | null {
+    return blockedAccessDetails;
+  },
+  set(details: BlockedAccessDetails): void {
+    blockedAccessDetails = details;
+    blockedAccessListeners.forEach(listener => listener(blockedAccessDetails));
+  },
+  clear(): void {
+    blockedAccessDetails = null;
+    blockedAccessListeners.forEach(listener => listener(null));
+  },
+  subscribe(listener: BlockedAccessListener): () => void {
+    blockedAccessListeners.add(listener);
+    return () => blockedAccessListeners.delete(listener);
+  },
+};
+
 export class ApiError extends Error {
   status: number;
   detail: unknown;
@@ -87,6 +162,15 @@ function messageFrom(body: unknown): string {
   return "API request failed.";
 }
 
+function isBlockedAccessResponse(body: unknown): body is BlockedAccessDetails {
+  return (
+    typeof body === "object" &&
+    body !== null &&
+    (body as { code?: unknown }).code === "IP_BLOCKED" &&
+    typeof (body as { ip_address?: unknown }).ip_address === "string"
+  );
+}
+
 async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = tokenStorage.getRefreshToken();
   if (!refreshToken) return null;
@@ -129,6 +213,16 @@ export async function apiRequest<T>(
   }
   if (!response.ok) {
     const parsed = await parseBody(response);
+    if ((response.status === 403 || response.status === 429) && isBlockedAccessResponse(parsed)) {
+      blockedAccessStore.set({
+        detail: parsed.detail || "Your IP address is blocked.",
+        code: "IP_BLOCKED",
+        ip_address: parsed.ip_address,
+        reason: parsed.reason ?? "Blocked by administrator",
+        blocked_until: parsed.blocked_until ?? null,
+        is_permanent: Boolean(parsed.is_permanent),
+      });
+    }
     throw new ApiError(messageFrom(parsed), response.status, parsed);
   }
   if (response.status === 204) return undefined as T;
@@ -137,10 +231,17 @@ export async function apiRequest<T>(
 
 export const apiClient = {
   get: <T>(path: string) => apiRequest<T>(path),
+  getPublic: <T>(path: string) => apiRequest<T>(path, { auth: false }),
+  login: (body: { email: string; password: string }) =>
+    apiRequest<LoginSuccessResponse | Login2FARequiredResponse>("/auth/login", { method: "POST", body, auth: false }),
   post: <T>(path: string, body?: unknown, auth = true) =>
     apiRequest<T>(path, { method: "POST", body, auth }),
   register: <T>(body: unknown) =>
     apiRequest<T>("/auth/register", { method: "POST", body, auth: false }),
+  verify2FA: (body: Verify2FARequest) =>
+    apiRequest<LoginSuccessResponse>("/auth/verify-2fa", { method: "POST", body, auth: false }),
+  checkSelfBlock: () =>
+    apiRequest<SelfBlockCheckResponse>("/blocks/check-self", { auth: false }),
   patch: <T>(path: string, body?: unknown) =>
     apiRequest<T>(path, { method: "PATCH", body }),
   delete: <T>(path: string) => apiRequest<T>(path, { method: "DELETE" }),

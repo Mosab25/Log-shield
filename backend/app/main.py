@@ -10,6 +10,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.router import api_router
 from app.core.config import settings
+from app.middleware.ip_block import IPBlockMiddleware
 from app.middleware.rate_limit import InMemoryRateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 
@@ -30,6 +31,7 @@ app.add_middleware(
     requests_per_minute=settings.rate_limit_per_minute,
     auth_requests_per_minute=settings.auth_rate_limit_per_minute,
 )
+app.add_middleware(IPBlockMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,

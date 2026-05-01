@@ -4,9 +4,11 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
+  ChevronLeft,
   Eye,
   EyeOff,
   Fingerprint,
+  KeyRound,
   Lock,
   Mail,
   Network,
@@ -42,11 +44,13 @@ function LogShieldEmblem() {
 }
 
 export function LoginPage() {
-  const { login, isAuthenticated, isLoading } = useAuth();
+  const { login, verify2FA, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [otpCode, setOtpCode] = useState("");
+  const [twoFactorChallenge, setTwoFactorChallenge] = useState<{ challengeId: string; deliveryTarget: string | null; message: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -68,11 +72,25 @@ export function LoginPage() {
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (lockoutSeconds > 0 || isSubmitting) return;
+    if ((!twoFactorChallenge && lockoutSeconds > 0) || isSubmitting) return;
     setError(null);
     setIsSubmitting(true);
     try {
-      await login(email, password);
+      if (twoFactorChallenge) {
+        await verify2FA(twoFactorChallenge.challengeId, otpCode);
+      } else {
+        const result = await login(email, password);
+        if (result.requires2FA) {
+          setTwoFactorChallenge({
+            challengeId: result.challengeId || "",
+            deliveryTarget: result.deliveryTarget ?? null,
+            message: result.message || "Verification code sent to the admin security email.",
+          });
+          setOtpCode("");
+          setPassword("");
+          return;
+        }
+      }
       navigate(from, { replace: true });
     } catch (err) {
       if (err instanceof ApiError && err.status === 429) {
@@ -83,6 +101,10 @@ export function LoginPage() {
         setError(detailStr);
       } else {
         const msg = err instanceof ApiError ? err.message : err instanceof Error ? err.message : "Login failed.";
+        if (twoFactorChallenge && /sign in again|verification challenge|already been used/i.test(msg)) {
+          setTwoFactorChallenge(null);
+          setOtpCode("");
+        }
         setError(msg);
       }
     } finally {
@@ -95,6 +117,10 @@ export function LoginPage() {
     const sec = s % 60;
     return m > 0 ? `${m}:${sec.toString().padStart(2, "0")}` : `${sec}s`;
   };
+
+  const verificationSubtitle = twoFactorChallenge?.deliveryTarget
+    ? `Enter the verification code sent to ${twoFactorChallenge.deliveryTarget}.`
+    : "Enter the verification code sent to the admin security email.";
 
   return (
     <main className="relative flex min-h-screen overflow-hidden bg-[#020817] px-4 py-8 text-slate-100 sm:px-6 lg:px-8">
@@ -145,52 +171,78 @@ export function LoginPage() {
               </div>
 
               <div className="mt-8">
-                <h3 className="text-3xl font-bold tracking-tight text-white">Sign in securely</h3>
+                <h3 className="text-3xl font-bold tracking-tight text-white">{twoFactorChallenge ? "Admin Verification" : "Sign in securely"}</h3>
                 <p className="mt-2 text-sm leading-6 text-slate-400">
-                  Access your monitoring workspace and continue investigating active security signals.
+                  {twoFactorChallenge ? verificationSubtitle : "Access your monitoring workspace and continue investigating active security signals."}
                 </p>
               </div>
 
               <form onSubmit={submit} className="mt-8 space-y-5" autoComplete="off">
-                <label className="block">
-                  <span className="text-sm font-medium text-slate-300">Email address</span>
-                  <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3.5 text-slate-100 shadow-inner shadow-black/30 transition focus-within:border-cyan-300/70 focus-within:ring-4 focus-within:ring-cyan-300/10">
-                    <Mail className="h-5 w-5 text-cyan-200/80" />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600"
-                      placeholder="you@company.com"
-                      autoComplete="username"
-                      required
-                    />
-                  </span>
-                </label>
+                {!twoFactorChallenge ? (
+                  <>
+                    <label className="block">
+                      <span className="text-sm font-medium text-slate-300">Email address</span>
+                      <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3.5 text-slate-100 shadow-inner shadow-black/30 transition focus-within:border-cyan-300/70 focus-within:ring-4 focus-within:ring-cyan-300/10">
+                        <Mail className="h-5 w-5 text-cyan-200/80" />
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={e => setEmail(e.target.value)}
+                          className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600"
+                          placeholder="you@company.com"
+                          autoComplete="username"
+                          required
+                        />
+                      </span>
+                    </label>
 
-                <label className="block">
-                  <span className="text-sm font-medium text-slate-300">Password</span>
-                  <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3.5 text-slate-100 shadow-inner shadow-black/30 transition focus-within:border-cyan-300/70 focus-within:ring-4 focus-within:ring-cyan-300/10">
-                    <Lock className="h-5 w-5 text-cyan-200/80" />
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600"
-                      placeholder="Enter your password"
-                      autoComplete="current-password"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(value => !value)}
-                      className="rounded-lg p-1 text-slate-400 transition hover:bg-white/5 hover:text-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
-                      aria-label={showPassword ? "Hide password" : "Show password"}
-                    >
-                      {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                    </button>
-                  </span>
-                </label>
+                    <label className="block">
+                      <span className="text-sm font-medium text-slate-300">Password</span>
+                      <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3.5 text-slate-100 shadow-inner shadow-black/30 transition focus-within:border-cyan-300/70 focus-within:ring-4 focus-within:ring-cyan-300/10">
+                        <Lock className="h-5 w-5 text-cyan-200/80" />
+                        <input
+                          type={showPassword ? "text" : "password"}
+                          value={password}
+                          onChange={e => setPassword(e.target.value)}
+                          className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600"
+                          placeholder="Enter your password"
+                          autoComplete="current-password"
+                          required
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(value => !value)}
+                          className="rounded-lg p-1 text-slate-400 transition hover:bg-white/5 hover:text-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+                          aria-label={showPassword ? "Hide password" : "Show password"}
+                        >
+                          {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                        </button>
+                      </span>
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-sm leading-6 text-cyan-100">
+                      {twoFactorChallenge.message}
+                    </div>
+                    <label className="block">
+                      <span className="text-sm font-medium text-slate-300">6-digit verification code</span>
+                      <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3.5 text-slate-100 shadow-inner shadow-black/30 transition focus-within:border-cyan-300/70 focus-within:ring-4 focus-within:ring-cyan-300/10">
+                        <KeyRound className="h-5 w-5 text-cyan-200/80" />
+                        <input
+                          type="text"
+                          value={otpCode}
+                          onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                          className="w-full bg-transparent text-sm tracking-[0.35em] outline-none placeholder:text-slate-600"
+                          placeholder="000000"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          required
+                        />
+                      </span>
+                    </label>
+                  </>
+                )}
 
           {error && !lockoutSeconds && (
                   <div className="flex items-start gap-3 rounded-2xl border border-amber-300/30 bg-amber-400/10 p-4 text-sm text-amber-100 shadow-[0_0_24px_rgba(251,191,36,0.08)]">
@@ -208,24 +260,44 @@ export function LoginPage() {
           )}
 
                 <button
-                  disabled={lockoutSeconds > 0 || isSubmitting}
+                  disabled={(lockoutSeconds > 0 && !twoFactorChallenge) || isSubmitting || (twoFactorChallenge ? otpCode.trim().length !== 6 : false)}
                   className={`group flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-black text-slate-950 shadow-[0_18px_42px_rgba(34,211,238,0.24)] transition duration-300 focus:outline-none focus-visible:ring-4 focus-visible:ring-cyan-200/30 ${
-                    lockoutSeconds > 0 || isSubmitting
+                    ((lockoutSeconds > 0 && !twoFactorChallenge) || isSubmitting || (twoFactorChallenge ? otpCode.trim().length !== 6 : false))
                       ? "cursor-not-allowed bg-slate-600 text-slate-300 shadow-none"
                       : "bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-300 hover:-translate-y-0.5 hover:shadow-[0_24px_60px_rgba(34,211,238,0.32)]"
                   }`}
                 >
-                  {isSubmitting ? "Verifying access..." : lockoutSeconds > 0 ? `Locked (${formatTimer(lockoutSeconds)})` : "Sign in"}
-                  {!isSubmitting && lockoutSeconds <= 0 ? <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" /> : null}
+                  {isSubmitting ? (twoFactorChallenge ? "Verifying code..." : "Verifying access...") : lockoutSeconds > 0 && !twoFactorChallenge ? `Locked (${formatTimer(lockoutSeconds)})` : twoFactorChallenge ? "Verify Code" : "Sign in"}
+                  {!isSubmitting && (lockoutSeconds <= 0 || twoFactorChallenge) ? <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" /> : null}
                 </button>
+                {twoFactorChallenge ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTwoFactorChallenge(null);
+                      setOtpCode("");
+                      setError(null);
+                    }}
+                    className="soc-button-ghost w-full"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Back to login
+                  </button>
+                ) : null}
               </form>
 
               <div className="mt-7 border-t border-white/10 pt-5">
                 <p className="text-center text-sm text-slate-400">
-                  No account yet?{" "}
-                  <Link to="/register" className="font-semibold text-cyan-200 transition hover:text-white focus:outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-cyan-300/70">
-                    Create one
-                  </Link>
+                  {twoFactorChallenge ? (
+                    "Admin verification is required before access tokens are issued."
+                  ) : (
+                    <>
+                      No account yet?{" "}
+                      <Link to="/register" className="font-semibold text-cyan-200 transition hover:text-white focus:outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-cyan-300/70">
+                        Create one
+                      </Link>
+                    </>
+                  )}
                 </p>
               </div>
             </div>

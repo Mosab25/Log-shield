@@ -20,7 +20,8 @@ from app.core.security import (
 from app.models.refresh_token import RefreshToken
 from app.models.role import Role
 from app.models.user import User
-from app.schemas.auth import LoginRequest, RegisterRequest
+from app.schemas.auth import Login2FARequiredResponse, LoginRequest, RegisterRequest
+from app.services.admin_2fa_service import Admin2FAService
 from app.services.audit_service import AuditService
 
 
@@ -248,8 +249,10 @@ class AuthService:
         *,
         source_ip: str,
         user_agent: str | None,
-    ) -> tuple[str, str, User]:
+    ) -> tuple[str, str, User] | Login2FARequiredResponse:
         user = cls.authenticate(db, payload, source_ip=source_ip, user_agent=user_agent)
+        if Admin2FAService.is_required_for_user(user):
+            return Admin2FAService.create_challenge(db=db, user=user, source_ip=source_ip, user_agent=user_agent)
         user.last_login_at = datetime.now(timezone.utc)
         access_token = create_access_token(user.id, {"role": user.role.name if user.role else None})
         refresh_token, expires_at = create_refresh_token(user.id)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -20,6 +22,20 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
+
+
+def generate_numeric_otp(length: int = 6) -> str:
+    upper_bound = 10 ** max(1, length)
+    return str(secrets.randbelow(upper_bound)).zfill(length)
+
+
+def hash_otp_code(challenge_id: str, code: str) -> str:
+    payload = f"{challenge_id}:{code}".encode("utf-8")
+    return hmac.new(settings.jwt_secret_key.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+
+
+def verify_otp_code(challenge_id: str, code: str, expected_hash: str) -> bool:
+    return hmac.compare_digest(hash_otp_code(challenge_id, code), expected_hash)
 
 
 def create_access_token(subject: str | int, additional_claims: dict[str, Any] | None = None) -> str:

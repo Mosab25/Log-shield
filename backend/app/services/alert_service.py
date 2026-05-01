@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException, status
 
 from app.models.alert import Alert
@@ -44,11 +44,9 @@ class AlertService:
         return {"id": log.id, "raw_log_id": log.raw_log_id, "event_time": log.event_time, "source": log.source, "source_type": log.source_type, "event_type": log.event_type, "severity": log.severity, "parser_status": log.parser_status, "src_ip": log.src_ip, "username": log.username, "hostname": log.hostname, "message": log.message, "metadata": log.event_metadata or {}}
 
     @classmethod
-    def list_item(cls, db: Session, alert: Alert) -> dict:
-        logs = cls.related_logs(db, alert)
+    def _list_item_from_context(cls, alert: Alert, logs: list[NormalizedLog], notes_count: int) -> dict:
         source_ip = next((l.src_ip for l in logs if l.src_ip), None)
         username = next((l.username for l in logs if l.username), None)
-        notes_count = db.execute(select(func.count(AnalystNote.id)).where(AnalystNote.alert_id == alert.id)).scalar_one()
         return {
             "id": alert.id,
             "title": alert.title,
@@ -68,6 +66,43 @@ class AlertService:
             "created_at": alert.created_at,
             "updated_at": alert.updated_at,
         }
+
+    @classmethod
+    def list_item(cls, db: Session, alert: Alert) -> dict:
+        logs = cls.related_logs(db, alert)
+        notes_count = db.execute(select(func.count(AnalystNote.id)).where(AnalystNote.alert_id == alert.id)).scalar_one()
+        return cls._list_item_from_context(alert, logs, notes_count)
+
+    @classmethod
+    def _list_items(cls, db: Session, alerts: list[Alert]) -> list[dict]:
+        if not alerts:
+            return []
+
+        alert_ids = [alert.id for alert in alerts]
+        logs_by_alert: dict[int, dict[int, NormalizedLog]] = {alert.id: {} for alert in alerts}
+        for alert in alerts:
+            if alert.normalized_log:
+                logs_by_alert[alert.id][alert.normalized_log.id] = alert.normalized_log
+
+        related_rows = db.execute(
+            select(AlertRelatedLog.alert_id, NormalizedLog)
+            .join(NormalizedLog, AlertRelatedLog.normalized_log_id == NormalizedLog.id)
+            .where(AlertRelatedLog.alert_id.in_(alert_ids))
+        ).all()
+        for alert_id, log in related_rows:
+            logs_by_alert.setdefault(alert_id, {})[log.id] = log
+
+        note_rows = db.execute(
+            select(AnalystNote.alert_id, func.count(AnalystNote.id))
+            .where(AnalystNote.alert_id.in_(alert_ids))
+            .group_by(AnalystNote.alert_id)
+        ).all()
+        notes_by_alert = {alert_id: int(count) for alert_id, count in note_rows}
+
+        return [
+            cls._list_item_from_context(alert, list(logs_by_alert.get(alert.id, {}).values()), notes_by_alert.get(alert.id, 0))
+            for alert in alerts
+        ]
 
     @classmethod
     def detail(cls, db: Session, alert: Alert) -> dict:
@@ -92,7 +127,11 @@ class AlertService:
 
     @classmethod
     def list_alerts(cls, *, db: Session, skip: int, limit: int, status_filter: str | None, severity: str | None, assigned_to_id: int | None, source_ip: str | None, username: str | None, min_risk_score: int | None, max_risk_score: int | None, start_date, end_date) -> tuple[int, list[dict]]:
-        query = select(Alert)
+        query = select(Alert).options(
+            joinedload(Alert.normalized_log),
+            joinedload(Alert.detection_rule),
+            joinedload(Alert.assigned_to).joinedload(User.role),
+        )
         count_query = select(func.count(Alert.id))
         filters = []
         if status_filter: filters.append(Alert.status == status_filter)
@@ -107,7 +146,7 @@ class AlertService:
             count_query = count_query.where(f)
         total = db.execute(count_query).scalar_one()
         alerts = db.execute(query.order_by(Alert.risk_score.desc(), Alert.created_at.desc()).offset(skip).limit(limit)).scalars().all()
-        items = [cls.list_item(db, alert) for alert in alerts]
+        items = cls._list_items(db, list(alerts))
         if source_ip:
             items = [i for i in items if i["source_ip"] == source_ip]
         if username:

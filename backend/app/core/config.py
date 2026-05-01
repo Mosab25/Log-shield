@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,7 +12,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 class Settings(BaseSettings):
     app_name: str = Field(default="LogShield", alias="APP_NAME")
-    app_env: str = Field(default="development", alias="APP_ENV")
+    app_env: str = Field(default="development", validation_alias=AliasChoices("APP_ENV", "ENVIRONMENT"))
     debug: bool = Field(default=False, alias="DEBUG")
 
     database_url: str = Field(
@@ -39,6 +39,21 @@ class Settings(BaseSettings):
     login_max_failed_attempts: int = Field(default=3, alias="LOGIN_MAX_FAILED_ATTEMPTS")
     login_ip_block_minutes: int = Field(default=1, alias="LOGIN_IP_BLOCK_MINUTES")
     report_export_max_rows: int = Field(default=5000, alias="REPORT_EXPORT_MAX_ROWS")
+    admin_2fa_enabled: bool = Field(default=False, alias="ADMIN_2FA_ENABLED")
+    admin_security_email: str = Field(default="", alias="ADMIN_SECURITY_EMAIL")
+    admin_otp_expire_minutes: int = Field(default=5, alias="ADMIN_OTP_EXPIRE_MINUTES")
+    admin_otp_max_attempts: int = Field(default=5, alias="ADMIN_OTP_MAX_ATTEMPTS")
+    email_provider: str = Field(default="resend", alias="EMAIL_PROVIDER")
+    resend_api_key: str = Field(default="", alias="RESEND_API_KEY")
+    resend_from_email: str = Field(default="onboarding@resend.dev", alias="RESEND_FROM_EMAIL")
+    email_request_timeout_seconds: int = Field(default=15, alias="EMAIL_REQUEST_TIMEOUT_SECONDS")
+    smtp_host: str = Field(default="", alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, alias="SMTP_PORT")
+    smtp_username: str = Field(default="", alias="SMTP_USERNAME")
+    smtp_password: str = Field(default="", alias="SMTP_PASSWORD")
+    smtp_from_email: str = Field(default="", alias="SMTP_FROM_EMAIL")
+    smtp_use_tls: bool = Field(default=True, alias="SMTP_USE_TLS")
+    smtp_timeout_seconds: int = Field(default=15, alias="SMTP_TIMEOUT_SECONDS")
 
     nvd_api_base_url: str = Field(default="https://services.nvd.nist.gov/rest/json/cves/2.0", alias="NVD_API_BASE_URL")
     nvd_api_key: str = Field(default="", alias="NVD_API_KEY")
@@ -57,6 +72,40 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def is_development(self) -> bool:
+        return self.app_env.strip().lower() == "development"
+
+    @property
+    def normalized_email_provider(self) -> str:
+        provider = self.email_provider.strip().lower()
+        return provider or "resend"
+
+    @property
+    def resend_configured(self) -> bool:
+        return bool(self.resend_api_key.strip() and self.resend_from_email.strip())
+
+    @property
+    def smtp_configured(self) -> bool:
+        if not self.smtp_host.strip() or not self.smtp_from_email.strip():
+            return False
+        username = self.smtp_username.strip()
+        password = self.smtp_password.strip()
+        if bool(username) != bool(password):
+            return False
+        return True
+
+    @property
+    def admin_email_delivery_configured(self) -> bool:
+        if not self.admin_security_email.strip():
+            return False
+        provider = self.normalized_email_provider
+        if provider == "resend":
+            return self.resend_configured
+        if provider == "smtp":
+            return self.smtp_configured
+        return False
 
 
 @lru_cache

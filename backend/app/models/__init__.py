@@ -1,10 +1,12 @@
 from app.models.alert import Alert
+from app.models.admin_otp_challenge import AdminOTPChallenge
 from app.models.alert_related_log import AlertRelatedLog
 from app.models.alert_status_history import AlertStatusHistory
 from app.models.alert_threat_link import AlertThreatLink
 from app.models.analyst_note import AnalystNote
 from app.models.audit_log import AuditLog
 from app.models.detection_rule import DetectionRule
+from app.models.ip_block import IPBlock
 from app.models.normalized_log import NormalizedLog
 from app.models.raw_log import RawLog
 from app.models.refresh_token import RefreshToken
@@ -21,12 +23,14 @@ from app.models.user import User
 
 __all__ = [
     "Alert",
+    "AdminOTPChallenge",
     "AlertRelatedLog",
     "AlertStatusHistory",
     "AlertThreatLink",
     "AnalystNote",
     "AuditLog",
     "DetectionRule",
+    "IPBlock",
     "NormalizedLog",
     "RawLog",
     "RefreshToken",

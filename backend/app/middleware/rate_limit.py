@@ -8,6 +8,8 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from app.services.ip_block_service import get_client_ip
+
 
 class InMemoryRateLimitMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, requests_per_minute: int = 120, auth_requests_per_minute: int = 20):
@@ -17,13 +19,11 @@ class InMemoryRateLimitMiddleware(BaseHTTPMiddleware):
         self.clients: dict[str, deque[float]] = defaultdict(deque)
 
     def _client_key(self, request: Request) -> str:
-        ip_address = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        if not ip_address:
-            ip_address = request.client.host if request.client else "unknown"
+        ip_address = get_client_ip(request)
         return f"{ip_address}:{request.url.path}"
 
     def _limit_for_path(self, path: str) -> int:
-        if path.startswith("/api/auth/login") or path.startswith("/api/auth/refresh"):
+        if path.startswith("/api/auth/login") or path.startswith("/api/auth/refresh") or path.startswith("/api/auth/verify-2fa"):
             return self.auth_requests_per_minute
         return self.requests_per_minute
 

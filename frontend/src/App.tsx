@@ -7,6 +7,7 @@ import { MainLayout } from "./layout/MainLayout";
 const AlertDetailsPage = lazy(() => import("./pages/AlertDetailsPage").then(m => ({ default: m.AlertDetailsPage })));
 const AlertsPage = lazy(() => import("./pages/AlertsPage").then(m => ({ default: m.AlertsPage })));
 const AuditLogsPage = lazy(() => import("./pages/AuditLogsPage").then(m => ({ default: m.AuditLogsPage })));
+const BlocksPage = lazy(() => import("./pages/BlocksPage").then(m => ({ default: m.BlocksPage })));
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then(m => ({ default: m.DashboardPage })));
 const LoginPage = lazy(() => import("./pages/LoginPage").then(m => ({ default: m.LoginPage })));
 const RegisterPage = lazy(() => import("./pages/RegisterPage").then(m => ({ default: m.RegisterPage })));
@@ -46,6 +47,7 @@ function App() {
           <Route path="rules" element={<RulesPage />} />
           <Route path="users" element={<RoleBasedRoute allowedRoles={["admin"]}><UsersPage /></RoleBasedRoute>} />
           <Route path="audit" element={<RoleBasedRoute allowedRoles={["admin"]}><AuditLogsPage /></RoleBasedRoute>} />
+          <Route path="blocks" element={<RoleBasedRoute allowedRoles={["admin"]}><BlocksPage /></RoleBasedRoute>} />
           <Route path="settings" element={<RoleBasedRoute allowedRoles={["admin"]}><SettingsPage /></RoleBasedRoute>} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

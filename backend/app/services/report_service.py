@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.alert import Alert
+from app.models.alert_related_log import AlertRelatedLog
 from app.models.normalized_log import NormalizedLog
 from app.models.report import Report
 from app.models.user import User
@@ -30,6 +31,30 @@ class ReportService:
         if end.tzinfo is None: end = end.replace(tzinfo=timezone.utc)
         return start, end
 
+    @staticmethod
+    def _alert_log_rows(db: Session, start, end):
+        alert_window = [Alert.created_at >= start, Alert.created_at <= end]
+        direct_query = (
+            select(Alert.id, Alert.risk_score, NormalizedLog.id, NormalizedLog.src_ip, NormalizedLog.username, NormalizedLog.event_time, NormalizedLog.created_at)
+            .join(NormalizedLog, Alert.normalized_log_id == NormalizedLog.id)
+            .where(*alert_window)
+        )
+        related_query = (
+            select(Alert.id, Alert.risk_score, NormalizedLog.id, NormalizedLog.src_ip, NormalizedLog.username, NormalizedLog.event_time, NormalizedLog.created_at)
+            .join(AlertRelatedLog, AlertRelatedLog.alert_id == Alert.id)
+            .join(NormalizedLog, AlertRelatedLog.normalized_log_id == NormalizedLog.id)
+            .where(*alert_window)
+        )
+        seen: set[tuple[int, int]] = set()
+        rows = []
+        for row in [*db.execute(direct_query).all(), *db.execute(related_query).all()]:
+            key = (row[0], row[2])
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append(row)
+        return rows
+
     @classmethod
     def summary(cls, *, db: Session, report_type: str, start_date=None, end_date=None):
         days = 1 if report_type == "daily" else 7
@@ -45,28 +70,24 @@ class ReportService:
     @classmethod
     def top_risky_ips(cls, *, db: Session, start_date=None, end_date=None, limit=10):
         start,end=cls._range(start_date,end_date,7); data={}
-        alerts=db.execute(select(Alert).where(Alert.created_at>=start,Alert.created_at<=end)).scalars().all()
-        for a in alerts:
-            for l in AlertService.related_logs(db,a):
-                if not l.src_ip: continue
-                d=data.setdefault(l.src_ip,{"ip_address":l.src_ip,"alerts":set(),"logs":set(),"max_risk_score":0,"latest_seen":None})
-                d["alerts"].add(a.id); d["logs"].add(l.id); d["max_risk_score"]=max(d["max_risk_score"],a.risk_score)
-                seen=l.event_time or l.created_at
-                if d["latest_seen"] is None or seen>d["latest_seen"]: d["latest_seen"]=seen
+        for alert_id, risk_score, log_id, src_ip, _username, event_time, created_at in cls._alert_log_rows(db, start, end):
+            if not src_ip: continue
+            d=data.setdefault(src_ip,{"ip_address":src_ip,"alerts":set(),"logs":set(),"max_risk_score":0,"latest_seen":None})
+            d["alerts"].add(alert_id); d["logs"].add(log_id); d["max_risk_score"]=max(d["max_risk_score"],risk_score)
+            seen=event_time or created_at
+            if d["latest_seen"] is None or seen>d["latest_seen"]: d["latest_seen"]=seen
         items=[{"ip_address":d["ip_address"],"alert_count":len(d["alerts"]),"related_log_count":len(d["logs"]),"max_risk_score":d["max_risk_score"],"latest_seen":d["latest_seen"]} for d in data.values()]
         return {"total":len(items[:limit]),"items":sorted(items,key=lambda x:(x["max_risk_score"],x["alert_count"]), reverse=True)[:limit]}
 
     @classmethod
     def targeted_users(cls, *, db: Session, start_date=None, end_date=None, limit=10):
         start,end=cls._range(start_date,end_date,7); data={}
-        alerts=db.execute(select(Alert).where(Alert.created_at>=start,Alert.created_at<=end)).scalars().all()
-        for a in alerts:
-            for l in AlertService.related_logs(db,a):
-                if not l.username: continue
-                d=data.setdefault(l.username,{"username":l.username,"alerts":set(),"logs":set(),"max_risk_score":0,"latest_seen":None})
-                d["alerts"].add(a.id); d["logs"].add(l.id); d["max_risk_score"]=max(d["max_risk_score"],a.risk_score)
-                seen=l.event_time or l.created_at
-                if d["latest_seen"] is None or seen>d["latest_seen"]: d["latest_seen"]=seen
+        for alert_id, risk_score, log_id, _src_ip, username, event_time, created_at in cls._alert_log_rows(db, start, end):
+            if not username: continue
+            d=data.setdefault(username,{"username":username,"alerts":set(),"logs":set(),"max_risk_score":0,"latest_seen":None})
+            d["alerts"].add(alert_id); d["logs"].add(log_id); d["max_risk_score"]=max(d["max_risk_score"],risk_score)
+            seen=event_time or created_at
+            if d["latest_seen"] is None or seen>d["latest_seen"]: d["latest_seen"]=seen
         items=[{"username":d["username"],"alert_count":len(d["alerts"]),"log_count":len(d["logs"]),"max_risk_score":d["max_risk_score"],"latest_seen":d["latest_seen"]} for d in data.values()]
         return {"total":len(items[:limit]),"items":sorted(items,key=lambda x:(x["alert_count"],x["max_risk_score"]), reverse=True)[:limit]}
 

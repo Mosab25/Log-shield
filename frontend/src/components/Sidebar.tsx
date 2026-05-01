@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, FileText, Globe, LayoutDashboard, ListChecks, ScrollText, Settings, ShieldAlert, ShieldCheck, Users } from "lucide-react";
+import { Activity, AlertTriangle, Ban, FileText, Globe, LayoutDashboard, ListChecks, ScrollText, Settings, ShieldAlert, ShieldCheck, Users } from "lucide-react";
 import { NavLink } from "react-router-dom";
 
 import { useAuth, type UserRole } from "../auth/AuthContext";
@@ -13,6 +13,7 @@ const items: Array<{ label: string; to: string; icon: any; roles?: UserRole[] }>
   { label: "Reports", to: "/reports", icon: FileText },
   { label: "Users", to: "/users", icon: Users, roles: ["admin"] },
   { label: "Audit", to: "/audit", icon: Activity, roles: ["admin"] },
+  { label: "IP Blocks", to: "/blocks", icon: Ban, roles: ["admin"] },
   { label: "Settings", to: "/settings", icon: Settings, roles: ["admin"] }
 ];
 
