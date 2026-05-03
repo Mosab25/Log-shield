@@ -59,7 +59,8 @@ export function Navbar({
           </div>
         </div>
 
-        <div className="flex min-w-0 items-center gap-1 sm:gap-2">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <GlobalSearch />
           <div className="hidden xs:block sm:hidden md:block">
             <p className="truncate text-sm font-semibold text-cyber-text">{user?.full_name ?? "Unknown"}</p>
             <p className="text-xs font-bold uppercase text-cyan-300">{role ?? "user"}</p>

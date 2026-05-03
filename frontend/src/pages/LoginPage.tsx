@@ -54,7 +54,6 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitWaitSeconds, setSubmitWaitSeconds] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
   const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || "/home";
 
@@ -69,17 +68,6 @@ export function LoginPage() {
     return () => clearInterval(timer);
   }, [lockoutSeconds]);
 
-  useEffect(() => {
-    if (!isSubmitting) {
-      setSubmitWaitSeconds(0);
-      return;
-    }
-    const timer = window.setInterval(() => {
-      setSubmitWaitSeconds(prev => prev + 1);
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [isSubmitting]);
-
   if (!isLoading && isAuthenticated) return <Navigate to={from} replace />;
 
   async function submit(e: FormEvent) {
@@ -87,14 +75,7 @@ export function LoginPage() {
     if ((!twoFactorChallenge && lockoutSeconds > 0) || isSubmitting) return;
     setError(null);
     setIsSubmitting(true);
-    
-    // Show loading state immediately
-    const submitTimer = window.setTimeout(() => {
-      if (submitWaitSeconds >= 2) {
-        setSubmitWaitSeconds(prev => prev + 1);
-      }
-    }, 1000);
-    
+
     try {
       if (twoFactorChallenge) {
         await verify2FA(twoFactorChallenge.challengeId, otpCode);
@@ -133,7 +114,6 @@ export function LoginPage() {
         setError(msg);
       }
     } finally {
-      window.clearTimeout(submitTimer);
       setIsSubmitting(false);
     }
   }
@@ -150,8 +130,7 @@ export function LoginPage() {
 
   const submitLabel = (() => {
     if (isSubmitting && twoFactorChallenge) return "Verifying code...";
-    if (isSubmitting && submitWaitSeconds >= 2) return "Sending verification code...";
-    if (isSubmitting) return "Verifying access...";
+    if (isSubmitting) return "Signing in...";
     if (lockoutSeconds > 0 && !twoFactorChallenge) return `Locked (${formatTimer(lockoutSeconds)})`;
     return twoFactorChallenge ? "Verify Code" : "Sign in";
   })();
