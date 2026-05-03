@@ -121,15 +121,6 @@ export const navigationItems: NavigationItem[] = [
     description: "Track systems, users, and services affected by SOC activity.",
   },
   {
-    label: "Vulnerability Management",
-    path: "/vulnerabilities",
-    icon: AlertTriangle,
-    section: "ASSET & RISK",
-    roles: ["admin", "analyst"],
-    keywords: ["vulnerability", "cve", "cvss", "risk", "patch"],
-    description: "Track and manage system vulnerabilities and remediation.",
-  },
-  {
     label: "IOC Management",
     path: "/iocs",
     icon: Fingerprint,
@@ -155,15 +146,6 @@ export const navigationItems: NavigationItem[] = [
     roles: ["admin", "analyst", "viewer"],
     keywords: ["hunt", "threat hunting", "query", "findings", "suspicious"],
     description: "Run guided hunts across logs and alerts for investigation leads.",
-  },
-  {
-    label: "IOC Management",
-    path: "/iocs",
-    icon: Fingerprint,
-    section: "INVESTIGATION",
-    roles: ["admin", "analyst", "viewer"],
-    keywords: ["ioc", "indicator", "ip", "domain", "hash", "email", "reputation"],
-    description: "Track indicators observed across alerts, logs, scans, and incidents.",
   },
   {
     label: "Response Playbooks",

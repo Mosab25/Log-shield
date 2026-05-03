@@ -16,6 +16,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=()"
+        if not settings.is_development:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
 
         connect_src = "'self'"
         if settings.is_development:

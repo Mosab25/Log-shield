@@ -76,7 +76,7 @@ function App() {
           <Route path="threats/:id" element={<ThreatDetailsPage />} />
           <Route path="threat-intel" element={<ThreatIntelligencePage />} />
           <Route path="assets" element={<AssetInventoryPage />} />
-          <Route path="vulnerabilities" element={<Navigate to="/threat-intelligence?tab=cve" replace />} />
+          <Route path="vulnerabilities" element={<Navigate to="/threat-intelligence" replace />} />
           <Route path="incidents" element={<IncidentsPage />} />
           <Route path="incidents/:id" element={<IncidentDetailsPage />} />
           <Route path="hunting" element={<ThreatHuntingPage />} />

@@ -4,6 +4,8 @@ import ast
 import json
 from typing import Annotated
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -23,6 +25,7 @@ from app.schemas.url_scanner import (
 from app.services.url_scanner_service import URLScannerService
 
 router = APIRouter()
+logger = logging.getLogger("logshield.url_scanner")
 
 
 def _parse_categories(raw_categories: str | None) -> list[str]:
@@ -186,9 +189,10 @@ async def scan_url(
     except Exception as e:
         # Provider error or other issue
         await _log_scan_event(db, current_user, "url_scan_failed", request.url, "provider_error")
+        logger.exception("URL scan failed for user %s.", current_user.id)
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to scan URL: {str(e)}"
+            detail="Failed to scan URL with the configured reputation provider."
         )
 
 

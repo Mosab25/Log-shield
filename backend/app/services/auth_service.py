@@ -36,6 +36,9 @@ _ip_failures: dict[str, FailedLoginIPState] = {}
 
 
 class AuthService:
+    INVALID_CREDENTIALS_MESSAGE = "Invalid email or password."
+    TEMP_BLOCK_MESSAGE = "Too many failed attempts. Please try again later."
+
     @staticmethod
     def _now_utc() -> datetime:
         return datetime.now(timezone.utc)
@@ -135,6 +138,12 @@ class AuthService:
     def authenticate(db: Session, payload: LoginRequest, source_ip: str, user_agent: str | None) -> User:
         user = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
         if user is None:
+            state = AuthService._record_ip_failure(
+                db=db,
+                source_ip=source_ip,
+                email=str(payload.email),
+                user_agent=user_agent,
+            )
             AuditService.create_audit_log(
                 db=db,
                 actor_user_id=None,
@@ -146,7 +155,14 @@ class AuthService:
                 details={"email": str(payload.email)},
             )
             db.commit()
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Email is not registered.")
+            if state.blocked_until:
+                remaining_seconds = int((state.blocked_until - AuthService._now_utc()).total_seconds()) + 1
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=AuthService.TEMP_BLOCK_MESSAGE,
+                    headers={"Retry-After": str(max(1, remaining_seconds))},
+                )
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=AuthService.INVALID_CREDENTIALS_MESSAGE)
 
         remaining_block_seconds = AuthService._check_ip_block(source_ip)
         state = _ip_failures.get(source_ip)
@@ -164,7 +180,7 @@ class AuthService:
             db.commit()
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Too many failed attempts from this IP. Try again in {remaining_block_seconds} seconds.",
+                detail=AuthService.TEMP_BLOCK_MESSAGE,
                 headers={"Retry-After": str(remaining_block_seconds)},
             )
 
@@ -181,12 +197,11 @@ class AuthService:
                 remaining_seconds = int((state.blocked_until - AuthService._now_utc()).total_seconds()) + 1
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                    detail=f"Too many failed attempts from this IP. Try again in {remaining_seconds} seconds.",
+                    detail=AuthService.TEMP_BLOCK_MESSAGE,
                     headers={"Retry-After": str(max(1, remaining_seconds))},
                 )
 
-            remaining_attempts = max(0, AuthService._max_failed_attempts() - state.failed_attempts)
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=f"Invalid password. {remaining_attempts} attempt(s) remaining before temporary lockout.")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=AuthService.INVALID_CREDENTIALS_MESSAGE)
         if not user.is_active:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive.")
         AuthService._clear_ip_failures(source_ip)

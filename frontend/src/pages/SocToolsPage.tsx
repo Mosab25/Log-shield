@@ -40,7 +40,7 @@ import {
   FileSearch,
   FileWarning,
 } from "lucide-react";
-import { InfoHint } from "../components/Guidance";
+import { InfoHint, VerdictBadge } from "../components/Guidance";
 import { PageHeader } from "../components/UI";
 import { deriveAttackSignalFromText } from "../securitySignals";
 
@@ -125,25 +125,119 @@ function ActionBtn({ label, onClick, disabled, variant = "primary" }: { label: s
   return <button onClick={onClick} disabled={disabled} className={cls}>{label}</button>;
 }
 
+type ToolVerdict = "safe" | "suspicious" | "malicious" | "unknown";
+type ToolSeverity = "low" | "medium" | "high" | "critical";
+
+interface ToolAssessment {
+  title: string;
+  verdict: ToolVerdict;
+  severity: ToolSeverity;
+  riskScore: number;
+  summary: string;
+  reasons: string[];
+  recommendedActions?: string[];
+  entities?: Record<string, string | null | undefined>;
+}
+
+function severityTone(severity: ToolSeverity): string {
+  if (severity === "critical") return "border-red-500/30 bg-red-500/10 text-red-300";
+  if (severity === "high") return "border-orange-400/30 bg-orange-500/10 text-orange-200";
+  if (severity === "medium") return "border-amber-400/25 bg-amber-500/10 text-amber-200";
+  return "border-emerald-400/25 bg-emerald-500/10 text-emerald-300";
+}
+
+function ToolAssessmentCard({ assessment }: { assessment: ToolAssessment | null }) {
+  if (!assessment) return null;
+  const entityEntries = Object.entries(assessment.entities || {}).filter(([, value]) => value);
+  return (
+    <div className="space-y-4 rounded-3xl border border-cyan-300/12 bg-slate-950/70 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300/80">Security Assessment</p>
+          <h3 className="mt-1 text-lg font-bold text-white">{assessment.title}</h3>
+          <p className="mt-1 text-sm text-slate-400">{assessment.summary}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <VerdictBadge verdict={assessment.verdict} />
+          <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black uppercase ${severityTone(assessment.severity)}`}>
+            {assessment.riskScore}/100 - {assessment.severity}
+          </span>
+        </div>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+        <div className="rounded-2xl border border-cyan-400/10 bg-cyber-elevated/40 p-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Why this looks like that</p>
+          <div className="mt-3 space-y-2">
+            {assessment.reasons.map(reason => (
+              <div key={reason} className="flex gap-2 text-sm text-slate-300">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                <span>{reason}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          {entityEntries.length > 0 ? (
+            <div className="rounded-2xl border border-cyan-400/10 bg-cyber-elevated/40 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Investigation clues</p>
+              <div className="mt-3 space-y-2 text-sm text-slate-300">
+                {entityEntries.map(([key, value]) => (
+                  <div key={key} className="flex items-center justify-between gap-3">
+                    <span className="text-slate-500">{key.replace(/_/g, " ")}</span>
+                    <span className="max-w-[16rem] truncate font-mono text-cyan-200" title={value || ""}>{value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {assessment.recommendedActions?.length ? (
+            <div className="rounded-2xl border border-cyan-400/10 bg-cyber-elevated/40 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">What to do next</p>
+              <div className="mt-3 space-y-2 text-sm text-slate-300">
+                {assessment.recommendedActions.slice(0, 4).map(action => (
+                  <div key={action} className="flex gap-2">
+                    <span className="font-black text-cyan-300">•</span>
+                    <span>{action}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ───────────── 1. Base64 Tool ───────────── */
 
 function Base64Tool() {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [assessment, setAssessment] = useState<ToolAssessment | null>(null);
 
   function encode() {
     setError(null);
+    setAssessment(null);
     if (!inputSizeOk(input)) return;
     try {
-      setOutput(btoa(unescape(encodeURIComponent(input))));
+      const encoded = btoa(unescape(encodeURIComponent(input)));
+      setOutput(encoded);
+      setAssessment(assessTextArtifact("Base64 input assessment", input, { treatIocsAsSuspicious: true }));
     } catch { setError("Encoding failed."); }
   }
   function decode() {
     setError(null);
+    setAssessment(null);
     if (!inputSizeOk(input)) return;
     try {
-      setOutput(decodeURIComponent(escape(atob(input.trim()))));
+      const decoded = decodeURIComponent(escape(atob(input.trim())));
+      setOutput(decoded);
+      setAssessment(assessTextArtifact("Decoded Base64 assessment", decoded, { treatIocsAsSuspicious: true }));
     } catch { setError("Invalid Base64 input. Check encoding and try again."); }
   }
 
@@ -154,9 +248,10 @@ function Base64Tool() {
       <div className="flex flex-wrap gap-2">
         <ActionBtn label="Encode" onClick={encode} disabled={!input.trim()} />
         <ActionBtn label="Decode" onClick={decode} disabled={!input.trim()} variant="secondary" />
-        <ClearBtn onClick={() => { setInput(""); setOutput(""); setError(null); }} />
+        <ClearBtn onClick={() => { setInput(""); setOutput(""); setError(null); setAssessment(null); }} />
       </div>
       {error && <ToolError message={error} />}
+      <ToolAssessmentCard assessment={assessment} />
       {output && <div className="space-y-1"><div className="flex items-center justify-between"><span className="text-xs font-semibold text-cyber-muted">Output</span><CopyBtn text={output} /></div><ToolOutput text={output} /></div>}
     </div>
   );
@@ -168,16 +263,36 @@ function UrlTool() {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [assessment, setAssessment] = useState<ToolAssessment | null>(null);
 
   function encode() {
     setError(null);
+    setAssessment(null);
     if (!inputSizeOk(input)) return;
-    try { setOutput(encodeURIComponent(input)); } catch { setError("URL encoding failed."); }
+    try {
+      const encoded = encodeURIComponent(input);
+      setOutput(encoded);
+      setAssessment(assessTextArtifact("URL input assessment", input, { treatIocsAsSuspicious: true }));
+    } catch { setError("URL encoding failed."); }
   }
   function decode() {
     setError(null);
+    setAssessment(null);
     if (!inputSizeOk(input)) return;
-    try { setOutput(decodeURIComponent(input.trim())); } catch { setError("Invalid URL-encoded input."); }
+    try {
+      const decoded = decodeURIComponent(input.trim());
+      setOutput(decoded);
+      const baseAssessment = assessTextArtifact("Decoded URL assessment", decoded, { treatIocsAsSuspicious: true });
+      const lowered = decoded.toLowerCase();
+      if (lowered.startsWith("javascript:") || lowered.startsWith("data:text/html")) {
+        baseAssessment.verdict = "malicious";
+        baseAssessment.severity = "high";
+        baseAssessment.riskScore = Math.max(baseAssessment.riskScore, 88);
+        baseAssessment.summary = "The decoded value looks like an executable browser payload.";
+        baseAssessment.reasons.unshift("The URL uses a dangerous browser-executable scheme.");
+      }
+      setAssessment(baseAssessment);
+    } catch { setError("Invalid URL-encoded input."); }
   }
 
   return (
@@ -187,9 +302,10 @@ function UrlTool() {
       <div className="flex flex-wrap gap-2">
         <ActionBtn label="Encode" onClick={encode} disabled={!input.trim()} />
         <ActionBtn label="Decode" onClick={decode} disabled={!input.trim()} variant="secondary" />
-        <ClearBtn onClick={() => { setInput(""); setOutput(""); setError(null); }} />
+        <ClearBtn onClick={() => { setInput(""); setOutput(""); setError(null); setAssessment(null); }} />
       </div>
       {error && <ToolError message={error} />}
+      <ToolAssessmentCard assessment={assessment} />
       {output && <div className="space-y-1"><div className="flex items-center justify-between"><span className="text-xs font-semibold text-cyber-muted">Output</span><CopyBtn text={output} /></div><ToolOutput text={output} /></div>}
     </div>
   );
@@ -259,20 +375,61 @@ function JwtTool() {
   const [header, setHeader] = useState<string | null>(null);
   const [payload, setPayload] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [assessment, setAssessment] = useState<ToolAssessment | null>(null);
 
   function decode() {
-    setError(null); setHeader(null); setPayload(null);
+    setError(null); setHeader(null); setPayload(null); setAssessment(null);
     if (!inputSizeOk(input)) return;
     const parts = input.trim().split(".");
     if (parts.length < 2) { setError("Invalid JWT format. Expected at least 2 dot-separated parts."); return; }
+    let h: Record<string, unknown>;
     try {
-      const h = JSON.parse(decodeURIComponent(escape(atob(parts[0].replace(/-/g, "+").replace(/_/g, "/")))));
+      h = JSON.parse(decodeURIComponent(escape(atob(parts[0].replace(/-/g, "+").replace(/_/g, "/")))));
       setHeader(JSON.stringify(h, null, 2));
     } catch { setError("Failed to decode JWT header."); return; }
+    let p: Record<string, unknown>;
     try {
-      const p = JSON.parse(decodeURIComponent(escape(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")))));
+      p = JSON.parse(decodeURIComponent(escape(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")))));
       setPayload(JSON.stringify(p, null, 2));
     } catch { setError("Failed to decode JWT payload."); return; }
+    const reasons = ["JWTs are decoded locally only. Signature trust is not established by this tool."];
+    let riskScore = 18;
+    let severity: ToolSeverity = "low";
+    let verdict: ToolVerdict = "unknown";
+    let summary = "The token structure is valid enough to decode, but decoded fields should not be trusted without verification.";
+    const alg = String(h.alg || "").toLowerCase();
+    const role = String((p as { role?: string }).role || "").toLowerCase();
+    const subject = String((p as { sub?: string }).sub || (p as { email?: string }).email || "");
+    if (alg === "none") {
+      riskScore = 92;
+      severity = "critical";
+      verdict = "malicious";
+      summary = "The JWT advertises the insecure alg=none pattern.";
+      reasons.unshift("The header uses alg=none, which is unsafe if accepted by any backend.");
+    } else if (role === "admin" || role === "root") {
+      riskScore = 48;
+      severity = "medium";
+      verdict = "suspicious";
+      summary = "The token claims privileged access and should be verified carefully.";
+      reasons.unshift("The payload includes an elevated role claim.");
+    }
+    setAssessment({
+      title: "JWT trust assessment",
+      verdict,
+      severity,
+      riskScore,
+      summary,
+      reasons,
+      recommendedActions: [
+        "Verify the signature on the server side before trusting any claim.",
+        "Treat admin, root, or long-lived tokens as sensitive investigation evidence.",
+      ],
+      entities: {
+        subject,
+        role,
+        algorithm: alg || null,
+      },
+    });
   }
 
   return (
@@ -281,9 +438,10 @@ function JwtTool() {
       <SizeWarning input={input} />
       <div className="flex flex-wrap gap-2">
         <ActionBtn label="Decode" onClick={decode} disabled={!input.trim()} />
-        <ClearBtn onClick={() => { setInput(""); setHeader(null); setPayload(null); setError(null); }} />
+        <ClearBtn onClick={() => { setInput(""); setHeader(null); setPayload(null); setError(null); setAssessment(null); }} />
       </div>
       {error && <ToolError message={error} />}
+      <ToolAssessmentCard assessment={assessment} />
       {header && (
         <div className="space-y-1">
           <div className="flex items-center justify-between"><span className="text-xs font-semibold text-cyber-muted">Header</span><CopyBtn text={header} /></div>
@@ -342,17 +500,100 @@ function extractIocs(text: string): IocGroup[] {
   return groups;
 }
 
+function verdictFromRisk(score: number, severity: ToolSeverity, defaultVerdict: ToolVerdict = "unknown"): ToolVerdict {
+  if (severity === "critical" || score >= 85) return "malicious";
+  if (severity === "high" || score >= 45) return "suspicious";
+  if (severity === "medium" || score >= 20) return "suspicious";
+  return defaultVerdict;
+}
+
+function assessTextArtifact(title: string, text: string, options?: { treatIocsAsSuspicious?: boolean }): ToolAssessment {
+  const lower = text.toLowerCase();
+  const iocGroups = extractIocs(text);
+  const iocCount = iocGroups.reduce((sum, group) => sum + group.items.length, 0);
+  const scriptSignal = deriveAttackSignalFromText(text);
+  const reasons: string[] = [];
+  const actions = [
+    "Extract related IOCs and pivot into Threat Intelligence or URL Scanner.",
+    "Correlate the artifact with alerts, logs, and incidents before acting on it.",
+  ];
+  let score = 5;
+  let severity: ToolSeverity = "low";
+  let summary = "No clear malicious behavior was identified in the current text.";
+
+  if (scriptSignal.isAttack) {
+    score = Math.max(score, scriptSignal.severityHint === "high" ? 78 : scriptSignal.severityHint === "medium" ? 55 : 35);
+    severity = scriptSignal.severityHint === "critical" ? "critical" : scriptSignal.severityHint === "high" ? "high" : "medium";
+    reasons.push(...scriptSignal.reasons);
+    summary = scriptSignal.attackLabel
+      ? `${scriptSignal.attackLabel} patterns were detected in the provided content.`
+      : "Suspicious script-like behavior was detected in the provided content.";
+  }
+
+  if (/sqlmap|nmap|nikto|masscan|python-requests|curl\/|gobuster|dirbuster/.test(lower)) {
+    score = Math.max(score, 52);
+    severity = severity === "low" ? "medium" : severity;
+    reasons.push("Automation or offensive testing tooling terms were found.");
+  }
+
+  if (/union\s+select|or\s+1=1|information_schema|sleep\(|drop\s+table/.test(lower)) {
+    score = Math.max(score, 82);
+    severity = "high";
+    reasons.push("SQL injection markers were found.");
+    summary = "The content includes SQL injection style payloads or database probing indicators.";
+  }
+
+  if (iocCount > 0 && options?.treatIocsAsSuspicious) {
+    score = Math.max(score, iocCount >= 3 ? 45 : 28);
+    severity = score >= 45 ? "medium" : severity;
+    reasons.push(`${iocCount} IOC${iocCount !== 1 ? "s were" : " was"} extracted from the content.`);
+  }
+
+  if (!reasons.length) {
+    reasons.push("No direct attack markers, exploit payloads, or suspicious execution patterns were found.");
+  }
+
+  return {
+    title,
+    verdict: verdictFromRisk(score, severity, score <= 10 ? "safe" : "unknown"),
+    severity,
+    riskScore: Math.min(100, score),
+    summary,
+    reasons,
+    recommendedActions: actions,
+    entities: {
+      ip_address: iocGroups.find(group => group.label === "IPv4 Addresses")?.items[0] || null,
+      url: iocGroups.find(group => group.label === "URLs")?.items[0] || null,
+      email: iocGroups.find(group => group.label === "Email Addresses")?.items[0] || null,
+    },
+  };
+}
+
 function IocExtractorTool() {
   const [input, setInput] = useState("");
   const [groups, setGroups] = useState<IocGroup[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [assessment, setAssessment] = useState<ToolAssessment | null>(null);
 
   function extract() {
     setError(null);
+    setAssessment(null);
     if (!inputSizeOk(input)) return;
     const result = extractIocs(input);
-    if (result.length === 0) { setGroups([]); return; }
+    if (result.length === 0) {
+      setGroups([]);
+      setAssessment(assessTextArtifact("IOC extraction assessment", input));
+      return;
+    }
     setGroups(result);
+    const total = result.reduce((sum, group) => sum + group.items.length, 0);
+    const baseAssessment = assessTextArtifact("IOC extraction assessment", input, { treatIocsAsSuspicious: true });
+    baseAssessment.summary = `The input produced ${total} extracted IOC${total !== 1 ? "s" : ""}.`;
+    baseAssessment.riskScore = Math.max(baseAssessment.riskScore, total >= 4 ? 58 : 35);
+    baseAssessment.severity = total >= 4 ? "high" : "medium";
+    baseAssessment.verdict = total >= 4 ? "suspicious" : baseAssessment.verdict;
+    baseAssessment.reasons.unshift("Structured indicators were extracted from the provided content.");
+    setAssessment(baseAssessment);
   }
 
   const allIocs = groups.flatMap(g => g.items);
@@ -364,9 +605,10 @@ function IocExtractorTool() {
       <SizeWarning input={input} />
       <div className="flex flex-wrap gap-2">
         <ActionBtn label="Extract IOCs" onClick={extract} disabled={!input.trim()} />
-        <ClearBtn onClick={() => { setInput(""); setGroups([]); setError(null); }} />
+        <ClearBtn onClick={() => { setInput(""); setGroups([]); setError(null); setAssessment(null); }} />
       </div>
       {error && <ToolError message={error} />}
+      <ToolAssessmentCard assessment={assessment} />
       {input.trim() && groups.length === 0 && !error && <ToolEmptyState text="No IOCs found in the provided text." />}
       {groups.length > 0 && (
         <div className="space-y-4">
@@ -522,12 +764,37 @@ function UaInspectorTool() {
   const [input, setInput] = useState("");
   const [result, setResult] = useState<UaResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [assessment, setAssessment] = useState<ToolAssessment | null>(null);
 
   function analyze() {
-    setError(null); setResult(null);
+    setError(null); setResult(null); setAssessment(null);
     if (!inputSizeOk(input)) return;
     if (!input.trim()) return;
-    setResult(parseUa(input.trim()));
+    const parsed = parseUa(input.trim());
+    setResult(parsed);
+    const lower = input.toLowerCase();
+    const suspicious = /sqlmap|nmap|nikto|masscan|python-requests|curl\/|zgrab|bot|crawler/.test(lower);
+    setAssessment({
+      title: "User-Agent assessment",
+      verdict: suspicious ? "suspicious" : "unknown",
+      severity: suspicious ? "medium" : "low",
+      riskScore: suspicious ? 52 : 12,
+      summary: suspicious
+        ? "The User-Agent string resembles automation, reconnaissance, or scripted access."
+        : "No strong malicious fingerprint was matched, but User-Agent values are easy to spoof.",
+      reasons: suspicious
+        ? ["Known scanning or automation keywords were found in the User-Agent string."]
+        : ["User-Agent parsing is contextual only and does not prove trust or malice by itself."],
+      recommendedActions: [
+        "Correlate the User-Agent with source IP, request path, and repeated behavior.",
+        "Check whether the same fingerprint appears in alerts, logs, or threat hunts.",
+      ],
+      entities: {
+        browser: parsed.browser,
+        os: parsed.os,
+        device: parsed.device,
+      },
+    });
   }
 
   return (
@@ -536,9 +803,10 @@ function UaInspectorTool() {
       <SizeWarning input={input} />
       <div className="flex flex-wrap gap-2">
         <ActionBtn label="Analyze" onClick={analyze} disabled={!input.trim()} />
-        <ClearBtn onClick={() => { setInput(""); setResult(null); setError(null); }} />
+        <ClearBtn onClick={() => { setInput(""); setResult(null); setError(null); setAssessment(null); }} />
       </div>
       {error && <ToolError message={error} />}
+      <ToolAssessmentCard assessment={assessment} />
       {result && (
         <div className="grid gap-3 sm:grid-cols-2">
           {[
@@ -599,8 +867,10 @@ function getHeader(headers: Record<string, string[]>, key: string): string {
 function EmailHeaderTool() {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
+  const [assessment, setAssessment] = useState<ToolAssessment | null>(null);
 
   function analyze() {
+    setAssessment(null);
     if (!inputSizeOk(input)) return;
     const headers = parseHeaders(input);
     const received = headers.received || [];
@@ -635,6 +905,27 @@ function EmailHeaderTool() {
         "Preserve the full header as incident evidence if suspicious.",
       ],
     }, null, 2));
+    const riskScore = suspicious.length >= 4 ? 82 : suspicious.length >= 2 ? 58 : suspicious.length === 1 ? 32 : 10;
+    const severity: ToolSeverity = suspicious.length >= 4 ? "high" : suspicious.length >= 2 ? "medium" : "low";
+    setAssessment({
+      title: "Email header trust assessment",
+      verdict: suspicious.length >= 4 ? "malicious" : suspicious.length > 0 ? "suspicious" : "safe",
+      severity,
+      riskScore,
+      summary: suspicious.length
+        ? "The header contains trust or routing anomalies that deserve phishing-style triage."
+        : "Authentication and routing signals look reasonable from a quick local review.",
+      reasons: suspicious.length ? suspicious : ["SPF, DKIM, and DMARC do not show obvious immediate problems in the pasted header set."],
+      recommendedActions: [
+        "Compare visible sender identity with Return-Path and Reply-To.",
+        "Extract URLs, domains, and sender IPs before opening anything.",
+      ],
+      entities: {
+        from: getHeader(headers, "from") || null,
+        reply_to: getHeader(headers, "reply-to") || null,
+        return_path: getHeader(headers, "return-path") || null,
+      },
+    });
   }
 
   return (
@@ -643,8 +934,9 @@ function EmailHeaderTool() {
       <SizeWarning input={input} />
       <div className="flex flex-wrap gap-2">
         <ActionBtn label="Analyze Headers" onClick={analyze} disabled={!input.trim()} />
-        <ClearBtn onClick={() => { setInput(""); setOutput(""); }} />
+        <ClearBtn onClick={() => { setInput(""); setOutput(""); setAssessment(null); }} />
       </div>
+      <ToolAssessmentCard assessment={assessment} />
       {output && <div className="space-y-1"><div className="flex items-center justify-between"><span className="text-xs font-semibold text-slate-400">Header Analysis</span><CopyBtn text={output} /></div><ToolOutput text={output} /></div>}
     </div>
   );
@@ -662,8 +954,10 @@ const SECURITY_HEADERS = [
 function HttpHeadersTool() {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
+  const [assessment, setAssessment] = useState<ToolAssessment | null>(null);
 
   function analyze() {
+    setAssessment(null);
     if (!inputSizeOk(input)) return;
     const headers = parseHeaders(input);
     const present = SECURITY_HEADERS.filter(key => Boolean(headers[key]));
@@ -694,6 +988,26 @@ function HttpHeadersTool() {
         "HSTS should only be enabled when HTTPS is stable for the full domain.",
       ],
     }, null, 2));
+    const weakCookies = cookieFindings.filter(cookie => cookie.finding !== "cookie flags look reasonable").length;
+    const riskScore = missing.length >= 4 || weakCookies >= 2 ? 72 : missing.length >= 2 || weakCookies >= 1 ? 46 : 14;
+    const severity: ToolSeverity = riskScore >= 72 ? "high" : riskScore >= 46 ? "medium" : "low";
+    setAssessment({
+      title: "HTTP header security assessment",
+      verdict: riskScore >= 72 ? "suspicious" : riskScore >= 46 ? "suspicious" : "safe",
+      severity,
+      riskScore,
+      summary: riskScore >= 46
+        ? "The pasted response headers show browser-side hardening gaps or weak cookie protections."
+        : "No major browser security header gap stands out in this quick review.",
+      reasons: [
+        missing.length ? `${missing.length} recommended security header(s) are missing.` : "Core response security headers are present.",
+        weakCookies ? `${weakCookies} cookie definition(s) are missing hardening flags.` : "Observed cookies include the expected basic hardening flags.",
+      ],
+      recommendedActions: [
+        "Add CSP, HSTS, and cookie flags where your deployment model supports them.",
+        "Treat missing headers as exposure risk, not direct proof of compromise.",
+      ],
+    });
   }
 
   return (
@@ -702,8 +1016,9 @@ function HttpHeadersTool() {
       <SizeWarning input={input} />
       <div className="flex flex-wrap gap-2">
         <ActionBtn label="Inspect Headers" onClick={analyze} disabled={!input.trim()} />
-        <ClearBtn onClick={() => { setInput(""); setOutput(""); }} />
+        <ClearBtn onClick={() => { setInput(""); setOutput(""); setAssessment(null); }} />
       </div>
+      <ToolAssessmentCard assessment={assessment} />
       {output && <div className="space-y-1"><div className="flex items-center justify-between"><span className="text-xs font-semibold text-slate-400">Security Header Review</span><CopyBtn text={output} /></div><ToolOutput text={output} /></div>}
     </div>
   );
@@ -734,6 +1049,7 @@ const PORTS: Record<string, { service: string; note: string; risk: string }> = {
 function PortLookupTool() {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
+  const [assessment, setAssessment] = useState<ToolAssessment | null>(null);
 
   function lookup() {
     const ports = input.split(/[\s,;]+/).map(item => item.trim()).filter(Boolean);
@@ -749,6 +1065,20 @@ function PortLookupTool() {
         "Investigate critical remote admin or database exposure first.",
       ],
     }, null, 2));
+    const maxRisk = results.some(item => item.risk === "critical") ? "critical" : results.some(item => item.risk === "high") ? "high" : results.some(item => item.risk === "medium") ? "medium" : "low";
+    const riskScore = maxRisk === "critical" ? 88 : maxRisk === "high" ? 68 : maxRisk === "medium" ? 38 : 12;
+    setAssessment({
+      title: "Port exposure assessment",
+      verdict: riskScore >= 68 ? "suspicious" : riskScore >= 38 ? "unknown" : "safe",
+      severity: maxRisk,
+      riskScore,
+      summary: "Port numbers are contextual. The highest-risk service in the current list drives the score shown here.",
+      reasons: results.slice(0, 4).map(item => `Port ${item.port} maps to ${item.service} with ${item.risk} exposure risk.`),
+      recommendedActions: [
+        "Confirm whether the service is public, internal, or intentionally segmented.",
+        "Prioritize RDP, SMB, database, and search engine exposure first.",
+      ],
+    });
   }
 
   return (
@@ -756,8 +1086,9 @@ function PortLookupTool() {
       <ToolInput value={input} onChange={setInput} rows={3} placeholder="Enter ports: 22, 80, 443, 445, 3389" />
       <div className="flex flex-wrap gap-2">
         <ActionBtn label="Lookup Ports" onClick={lookup} disabled={!input.trim()} />
-        <ClearBtn onClick={() => { setInput(""); setOutput(""); }} />
+        <ClearBtn onClick={() => { setInput(""); setOutput(""); setAssessment(null); }} />
       </div>
+      <ToolAssessmentCard assessment={assessment} />
       {output && <div className="space-y-1"><div className="flex items-center justify-between"><span className="text-xs font-semibold text-slate-400">Port Context</span><CopyBtn text={output} /></div><ToolOutput text={output} /></div>}
     </div>
   );
@@ -784,6 +1115,7 @@ const WINDOWS_EVENTS: Record<string, { name: string; category: string; why: stri
 function WindowsEventTool() {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
+  const [assessment, setAssessment] = useState<ToolAssessment | null>(null);
 
   function lookup() {
     const ids = input.match(/\b\d{3,5}\b/g) || [];
@@ -798,6 +1130,24 @@ function WindowsEventTool() {
       }),
     }));
     setOutput(JSON.stringify({ results }, null, 2));
+    const dangerous = results.filter(item => ["1102", "4672", "4688", "4732", "7045"].includes(item.event_id));
+    const riskScore = dangerous.length >= 2 ? 76 : dangerous.length === 1 ? 52 : results.length ? 24 : 0;
+    setAssessment({
+      title: "Windows Event assessment",
+      verdict: dangerous.length >= 2 ? "suspicious" : dangerous.length === 1 ? "suspicious" : results.length ? "unknown" : "safe",
+      severity: dangerous.length >= 2 ? "high" : dangerous.length === 1 ? "medium" : "low",
+      riskScore,
+      summary: dangerous.length
+        ? "The selected event IDs include high-value execution, privilege, persistence, or tampering telemetry."
+        : "These event IDs are contextual and need surrounding host, user, and timing evidence.",
+      reasons: dangerous.length
+        ? dangerous.map(item => `${item.event_id} (${item.name}) often appears in elevated investigations.`)
+        : ["No strongly dangerous event ID was matched in the current local lookup."],
+      recommendedActions: [
+        "Pivot into the raw event record, user, host, and nearby timestamps.",
+        "Correlate privileged or tampering events with incidents and failed logons.",
+      ],
+    });
   }
 
   return (
@@ -805,8 +1155,9 @@ function WindowsEventTool() {
       <ToolInput value={input} onChange={setInput} rows={4} placeholder="Paste Event IDs or a Windows log line, e.g. 4625 4672 1102" />
       <div className="flex flex-wrap gap-2">
         <ActionBtn label="Lookup Event IDs" onClick={lookup} disabled={!input.trim()} />
-        <ClearBtn onClick={() => { setInput(""); setOutput(""); }} />
+        <ClearBtn onClick={() => { setInput(""); setOutput(""); setAssessment(null); }} />
       </div>
+      <ToolAssessmentCard assessment={assessment} />
       {output && <div className="space-y-1"><div className="flex items-center justify-between"><span className="text-xs font-semibold text-slate-400">Windows Event Context</span><CopyBtn text={output} /></div><ToolOutput text={output} /></div>}
     </div>
   );
@@ -815,6 +1166,7 @@ function WindowsEventTool() {
 function LogTriageTool() {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
+  const [assessment, setAssessment] = useState<ToolAssessment | null>(null);
 
   function triage() {
     if (!inputSizeOk(input)) return;
@@ -863,6 +1215,27 @@ function LogTriageTool() {
         "Create or link an incident if multiple events share the same entity.",
       ],
     }, null, 2));
+    setAssessment({
+      title: "Log triage assessment",
+      verdict: riskScore >= 85 ? "malicious" : riskScore >= 30 ? "suspicious" : "unknown",
+      severity: finalSeverity,
+      riskScore,
+      summary: verdict === "attack_detected"
+        ? "The log line matches one or more attack or suspicious-behavior patterns."
+        : "No strong attack pattern was confirmed from this single line alone.",
+      reasons: [
+        ...scriptSignal.reasons,
+        ...signals.map(item => `${item.name}: ${item.action}`),
+      ].slice(0, 6),
+      recommendedActions: [
+        "Correlate the same IP, user, endpoint, and timestamp across nearby logs.",
+        "Create or link an incident when multiple related signals are present.",
+      ],
+      entities: {
+        ip_address: extractIocs(input).find(group => group.label === "IPv4 Addresses")?.items[0] || null,
+        url: extractIocs(input).find(group => group.label === "URLs")?.items[0] || null,
+      },
+    });
   }
 
   return (
@@ -871,8 +1244,9 @@ function LogTriageTool() {
       <SizeWarning input={input} />
       <div className="flex flex-wrap gap-2">
         <ActionBtn label="Triage Log" onClick={triage} disabled={!input.trim()} />
-        <ClearBtn onClick={() => { setInput(""); setOutput(""); }} />
+        <ClearBtn onClick={() => { setInput(""); setOutput(""); setAssessment(null); }} />
       </div>
+      <ToolAssessmentCard assessment={assessment} />
       {output && <div className="space-y-1"><div className="flex items-center justify-between"><span className="text-xs font-semibold text-slate-400">Triage Result</span><CopyBtn text={output} /></div><ToolOutput text={output} /></div>}
     </div>
   );
@@ -1182,11 +1556,13 @@ function FileAnalyzerTool() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [assessment, setAssessment] = useState<ToolAssessment | null>(null);
 
   async function analyzeFile(file: File | null) {
     setError(null);
     setOutput("");
     setMessage(null);
+    setAssessment(null);
     if (!file) return;
     if (file.size > MAX_FILE_BYTES) {
       setError("File is too large for browser-side triage. Please keep files under 10MB.");
@@ -1267,6 +1643,21 @@ function FileAnalyzerTool() {
         iocs: extractedIocs,
         hashes,
       });
+      setAssessment({
+        title: "File triage assessment",
+        verdict: assessment.verdict === "attack_detected" ? (assessment.risk_score >= 85 ? "malicious" : "suspicious") : assessment.verdict === "suspicious" ? "suspicious" : "unknown",
+        severity: assessment.severity,
+        riskScore: assessment.risk_score,
+        summary: assessment.attack_name,
+        reasons: assessment.risk_reasons,
+        recommendedActions: assessment.recommended_actions,
+        entities: {
+          username: assessment.entities.username,
+          ip_address: assessment.entities.ip_address,
+          url: assessment.entities.url,
+          user_agent: assessment.entities.user_agent,
+        },
+      });
       setOutput(JSON.stringify(result, null, 2));
       setMessage("Derived finding added to IOC Management and Asset Inventory. Raw file content was not stored.");
     } catch {
@@ -1294,6 +1685,7 @@ function FileAnalyzerTool() {
       {loading ? <p className="text-sm font-semibold text-cyan-200">Analyzing file bytes locally...</p> : null}
       {message ? <p className="rounded-xl border border-emerald-300/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">{message}</p> : null}
       {error ? <ToolError message={error} /> : null}
+      <ToolAssessmentCard assessment={assessment} />
       {output && <div className="space-y-1"><div className="flex items-center justify-between"><span className="text-xs font-semibold text-slate-400">File Triage Report</span><CopyBtn text={output} /></div><ToolOutput text={output} /></div>}
     </div>
   );
