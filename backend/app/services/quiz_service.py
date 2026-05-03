@@ -25,6 +25,19 @@ from app.schemas.quiz import (
 
 class QuizService:
     @staticmethod
+    def _normalize_options(options: Any) -> list[str]:
+        if isinstance(options, dict):
+            normalized: list[str] = []
+            for i in range(4):
+                key = f"option_{i}"
+                if key in options:
+                    normalized.append(str(options[key]))
+            return normalized
+        if isinstance(options, list):
+            return [str(option) for option in options]
+        return []
+
+    @staticmethod
     def to_response(quiz: Quiz, include_questions: bool = False, include_correct: bool = False) -> QuizResponse:
         questions = None
         if include_questions:
@@ -50,17 +63,7 @@ class QuizService:
 
     @staticmethod
     def question_to_response(question: QuizQuestion, include_correct: bool = True) -> QuizQuestionResponse:
-        # Ensure options are in the correct order
-        if isinstance(question.options, dict):
-            # Extract options in order: option_0, option_1, option_2, option_3
-            ordered_options = []
-            for i in range(4):
-                key = f"option_{i}"
-                if key in question.options:
-                    ordered_options.append(question.options[key])
-            options = ordered_options
-        else:
-            options = question.options
+        options = QuizService._normalize_options(question.options)
             
         return QuizQuestionResponse(
             id=question.id,
@@ -258,6 +261,9 @@ class QuizService:
         for question in questions:
             user_answer = next((a for a in submission.answers if a.question_id == question.id), None)
             if user_answer:
+                options = QuizService._normalize_options(question.options)
+                selected_option = options[user_answer.selected_option_index] if user_answer.selected_option_index < len(options) else ""
+                correct_option = options[question.correct_option_index] if question.correct_option_index < len(options) else ""
                 is_correct = user_answer.selected_option_index == question.correct_option_index
                 if is_correct:
                     correct_count += 1
@@ -265,8 +271,8 @@ class QuizService:
                 answer_results.append({
                     "question_id": question.id,
                     "question_text": question.question_text,
-                    "selected_option": question.options.get(f"option_{user_answer.selected_option_index}", ""),
-                    "correct_option": question.options.get(f"option_{question.correct_option_index}", ""),
+                    "selected_option": selected_option,
+                    "correct_option": correct_option,
                     "is_correct": is_correct,
                     "explanation": question.explanation
                 })
