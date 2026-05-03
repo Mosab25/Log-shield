@@ -76,59 +76,59 @@ export function RegisterPage() {
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#020817] px-4 py-8 text-slate-100">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_12%,rgba(34,211,238,0.18),transparent_34rem),linear-gradient(135deg,#020817_0%,#061227_48%,#020817_100%)]" />
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-cyber-bg px-4 py-8 text-cyber-text">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_12%,rgba(34,211,238,0.14),transparent_34rem),linear-gradient(135deg,#060B13_0%,#0B1220_48%,#060B13_100%)]" />
       <section className="soc-panel-strong relative z-10 w-full max-w-md p-7 sm:p-8">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-200/25 bg-cyan-300/10 text-cyan-200">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-cyan-400/20 bg-cyber-cyan/10 text-cyan-300">
             <ShieldCheck className="h-7 w-7" />
           </div>
           <div>
-            <p className="text-xs font-bold uppercase text-cyan-200">LogShield</p>
-            <h1 className="text-2xl font-black text-white">Create Account</h1>
+            <p className="text-xs font-bold uppercase text-cyan-300">LogShield</p>
+            <h1 className="text-2xl font-black text-cyber-text">Create Account</h1>
           </div>
         </div>
 
         <form onSubmit={submit} className="mt-8 space-y-4" autoComplete="off">
           <label className="block">
-            <span className="text-sm font-semibold text-slate-300">Full name</span>
-            <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3 transition focus-within:border-cyan-300/70">
-              <User className="h-5 w-5 text-cyan-200/80" />
-              <input value={fullName} onChange={e => setFullName(e.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600" placeholder="Full Name" autoComplete="name" />
+            <span className="text-sm font-semibold text-cyber-text">Full name</span>
+            <span className="mt-2 flex items-center gap-3 rounded-2xl border border-cyan-400/15 bg-cyber-surface/80 px-4 py-3 transition focus-within:border-cyber-cyan/50">
+              <User className="h-5 w-5 text-cyan-300/80" />
+              <input value={fullName} onChange={e => setFullName(e.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-cyber-muted" placeholder="Full Name" autoComplete="name" />
             </span>
           </label>
           <label className="block">
-            <span className="text-sm font-semibold text-slate-300">Email</span>
-            <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3 transition focus-within:border-cyan-300/70">
-              <Mail className="h-5 w-5 text-cyan-200/80" />
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600" placeholder="you@company.com" autoComplete="email" />
+            <span className="text-sm font-semibold text-cyber-text">Email</span>
+            <span className="mt-2 flex items-center gap-3 rounded-2xl border border-cyan-400/15 bg-cyber-surface/80 px-4 py-3 transition focus-within:border-cyber-cyan/50">
+              <Mail className="h-5 w-5 text-cyan-300/80" />
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-cyber-muted" placeholder="you@company.com" autoComplete="email" />
             </span>
           </label>
           <label className="block">
-            <span className="text-sm font-semibold text-slate-300">Password</span>
-            <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3 transition focus-within:border-cyan-300/70">
-              <Lock className="h-5 w-5 text-cyan-200/80" />
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600" placeholder="Password" autoComplete="new-password" />
+            <span className="text-sm font-semibold text-cyber-text">Password</span>
+            <span className="mt-2 flex items-center gap-3 rounded-2xl border border-cyan-400/15 bg-cyber-surface/80 px-4 py-3 transition focus-within:border-cyber-cyan/50">
+              <Lock className="h-5 w-5 text-cyan-300/80" />
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-cyber-muted" placeholder="Password" autoComplete="new-password" />
             </span>
           </label>
-          <p className="text-xs leading-5 text-slate-400">{passwordHint}</p>
+          <p className="text-xs leading-5 text-cyber-muted">{passwordHint}</p>
           <label className="block">
-            <span className="text-sm font-semibold text-slate-300">Confirm password</span>
-            <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3 transition focus-within:border-cyan-300/70">
-              <Lock className="h-5 w-5 text-cyan-200/80" />
-              <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600" placeholder="Confirm Password" autoComplete="new-password" />
+            <span className="text-sm font-semibold text-cyber-text">Confirm password</span>
+            <span className="mt-2 flex items-center gap-3 rounded-2xl border border-cyan-400/15 bg-cyber-surface/80 px-4 py-3 transition focus-within:border-cyber-cyan/50">
+              <Lock className="h-5 w-5 text-cyan-300/80" />
+              <input type="password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full bg-transparent text-sm outline-none placeholder:text-cyber-muted" placeholder="Confirm Password" autoComplete="new-password" />
             </span>
           </label>
 
           {error ? (
-            <div className="flex items-start gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-200">
+            <div className="flex items-start gap-2 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-3 text-sm text-amber-200">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{error}</span>
             </div>
           ) : null}
 
           {success ? (
-            <div className="flex items-start gap-2 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+            <div className="flex items-start gap-2 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 p-3 text-sm text-emerald-300">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
               <span>{success}</span>
             </div>
@@ -140,9 +140,9 @@ export function RegisterPage() {
           </button>
         </form>
 
-        <p className="mt-5 text-center text-sm text-slate-400">
+        <p className="mt-5 text-center text-sm text-cyber-muted">
           Already have an account?{" "}
-          <Link to="/login" className="font-semibold text-cyan-200 hover:text-white">
+          <Link to="/login" className="font-semibold text-cyan-300 hover:text-white">
             Sign in
           </Link>
         </p>

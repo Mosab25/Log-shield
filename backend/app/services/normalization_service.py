@@ -118,3 +118,58 @@ class NormalizationService:
         total = db.execute(count_query).scalar_one()
         logs = db.execute(query.order_by(NormalizedLog.event_time.desc(), NormalizedLog.id.desc()).offset(skip).limit(limit)).scalars().all()
         return total, [cls.to_response(log) for log in logs]
+
+    @classmethod
+    def list_normalized_enhanced(
+        cls,
+        *,
+        db: Session,
+        skip: int,
+        limit: int,
+        source: str | None,
+        source_type: str | None,
+        event_type: str | None,
+        severity: str | None,
+        parser_status: str | None,
+        ip_address: str | None,
+        username: str | None,
+        endpoint: str | None,
+        q: str | None,
+        start_date,
+        end_date,
+    ) -> tuple[int, list[NormalizedLog]]:
+        """Enhanced list with additional filters for security events"""
+        query = select(NormalizedLog)
+        count_query = select(func.count(NormalizedLog.id))
+        filters = []
+        
+        if source:
+            filters.append(NormalizedLog.source == source)
+        if source_type:
+            filters.append(NormalizedLog.source_type == source_type)
+        if event_type:
+            filters.append(NormalizedLog.event_type == event_type)
+        if severity:
+            filters.append(NormalizedLog.severity == severity)
+        if parser_status:
+            filters.append(NormalizedLog.parser_status == parser_status)
+        if ip_address:
+            filters.append(NormalizedLog.src_ip == ip_address)
+        if username:
+            filters.append(NormalizedLog.username == username)
+        if endpoint:
+            filters.append(NormalizedLog.path.ilike(f"%{endpoint}%"))
+        if q:
+            filters.append(NormalizedLog.message.ilike(f"%{q}%"))
+        if start_date:
+            filters.append(NormalizedLog.event_time >= start_date)
+        if end_date:
+            filters.append(NormalizedLog.event_time <= end_date)
+            
+        for f in filters:
+            query = query.where(f)
+            count_query = count_query.where(f)
+
+        total = db.execute(count_query).scalar_one()
+        logs = db.execute(query.order_by(NormalizedLog.event_time.desc(), NormalizedLog.id.desc()).offset(skip).limit(limit)).scalars().all()
+        return total, logs

@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { apiClient } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { EvidenceExplanation, InfoHint, RecommendedActions } from "../components/Guidance";
 import { EmptyState, ErrorState, PageHeader, SectionHeader, SkeletonBlock } from "../components/UI";
 
 type IncidentSeverity = "low" | "medium" | "high" | "critical";
@@ -336,6 +337,10 @@ export function IncidentDetailsPage() {
       ) : null}
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
 
+      <InfoHint title="Investigation lifecycle">
+        The timeline shows what changed and when. Evidence preserves facts, while notes preserve analyst reasoning, handoffs, containment decisions, and final conclusions.
+      </InfoHint>
+
       <section className="soc-panel p-5">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div>
@@ -368,6 +373,19 @@ export function IncidentDetailsPage() {
           <p>Closed: {formatDate(incident.closed_at)}</p>
         </div>
       </section>
+
+      <RecommendedActions
+        title={`Recommended next step for ${incident.status.replace("_", " ")}`}
+        actions={
+          incident.status === "open"
+            ? ["Assign an owner.", "Link related alerts.", "Add first evidence item.", "Move to investigating when triage starts."]
+            : incident.status === "investigating"
+              ? ["Review linked alert evidence.", "Add analyst notes.", "Document containment actions.", "Resolve when impact is understood."]
+              : incident.status === "resolved"
+                ? ["Confirm no active alerts remain.", "Add final evidence.", "Prepare report if needed.", "Close the case."]
+                : ["Review the timeline for auditability.", "Confirm evidence is complete.", "Use the case as learning material.", "Reopen only if new evidence appears."]
+        }
+      />
 
       {canManage ? (
         <section className="grid gap-4 xl:grid-cols-2">
@@ -491,6 +509,15 @@ export function IncidentDetailsPage() {
 
       <section className="soc-panel p-5">
         <SectionHeader title={`Timeline (${incident.timeline.length})`} icon={Timer} />
+        <EvidenceExplanation
+          title="Timeline guidance"
+          points={[
+            "Timeline events explain the order of investigation actions.",
+            "Use it to understand who changed status, linked alerts, or added evidence.",
+            "A clean timeline makes handoff and final review easier.",
+          ]}
+        />
+        <div className="mt-4" />
         {incident.timeline.length === 0 ? (
           <EmptyState title="No timeline events yet" description="Events appear as the investigation progresses." icon={Timer} />
         ) : (
@@ -511,8 +538,16 @@ export function IncidentDetailsPage() {
 
       <section className="soc-panel p-5">
         <SectionHeader title={`Investigation Notes (${incident.notes.length})`} icon={MessageSquare} />
+        <EvidenceExplanation
+          title="Notes guidance"
+          points={[
+            "Use notes for analyst reasoning, hypotheses, decisions, and handoffs.",
+            "Do not paste secrets or credentials into notes.",
+            "Write enough context that another analyst can continue the case.",
+          ]}
+        />
         {canManage ? (
-          <form onSubmit={addNote} className="mb-4 grid gap-3 sm:grid-cols-[1fr_auto]">
+          <form onSubmit={addNote} className="mb-4 mt-4 grid gap-3 sm:grid-cols-[1fr_auto]">
             <input
               value={noteText}
               onChange={event => setNoteText(event.target.value)}
@@ -544,8 +579,16 @@ export function IncidentDetailsPage() {
 
       <section className="soc-panel p-5">
         <SectionHeader title={`Evidence (${incident.evidence.length})`} icon={Paperclip} />
+        <EvidenceExplanation
+          title="Evidence guidance"
+          points={[
+            "Evidence should be the facts: logs, alert IDs, URLs, screenshots references, or analyst-observed artifacts.",
+            "Good evidence explains why the incident is safe, suspicious, malicious, or false positive.",
+            "Link related alert or log IDs when possible.",
+          ]}
+        />
         {canManage ? (
-          <form onSubmit={addEvidence} className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <form onSubmit={addEvidence} className="mb-4 mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <input
               value={evidenceTitle}
               onChange={event => setEvidenceTitle(event.target.value)}

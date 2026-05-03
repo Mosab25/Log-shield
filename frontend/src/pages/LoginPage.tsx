@@ -54,8 +54,9 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitWaitSeconds, setSubmitWaitSeconds] = useState(0);
   const [showPassword, setShowPassword] = useState(false);
-  const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || "/dashboard";
+  const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || "/home";
 
   useEffect(() => {
     if (lockoutSeconds <= 0) return;
@@ -68,6 +69,17 @@ export function LoginPage() {
     return () => clearInterval(timer);
   }, [lockoutSeconds]);
 
+  useEffect(() => {
+    if (!isSubmitting) {
+      setSubmitWaitSeconds(0);
+      return;
+    }
+    const timer = window.setInterval(() => {
+      setSubmitWaitSeconds(prev => prev + 1);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [isSubmitting]);
+
   if (!isLoading && isAuthenticated) return <Navigate to={from} replace />;
 
   async function submit(e: FormEvent) {
@@ -75,11 +87,24 @@ export function LoginPage() {
     if ((!twoFactorChallenge && lockoutSeconds > 0) || isSubmitting) return;
     setError(null);
     setIsSubmitting(true);
+    
+    // Show loading state immediately
+    const submitTimer = window.setTimeout(() => {
+      if (submitWaitSeconds >= 2) {
+        setSubmitWaitSeconds(prev => prev + 1);
+      }
+    }, 1000);
+    
     try {
       if (twoFactorChallenge) {
         await verify2FA(twoFactorChallenge.challengeId, otpCode);
       } else {
-        const result = await login(email, password);
+        const trimmedEmail = email.trim();
+        if (trimmedEmail.toLowerCase().endsWith(".local")) {
+          setError("This email domain is reserved and cannot be used. Please sign in with the real LogShield account email.");
+          return;
+        }
+        const result = await login(trimmedEmail, password);
         if (result.requires2FA) {
           setTwoFactorChallenge({
             challengeId: result.challengeId || "",
@@ -108,6 +133,7 @@ export function LoginPage() {
         setError(msg);
       }
     } finally {
+      window.clearTimeout(submitTimer);
       setIsSubmitting(false);
     }
   }
@@ -122,13 +148,21 @@ export function LoginPage() {
     ? `Enter the verification code sent to ${twoFactorChallenge.deliveryTarget}.`
     : "Enter the verification code sent to the admin security email.";
 
+  const submitLabel = (() => {
+    if (isSubmitting && twoFactorChallenge) return "Verifying code...";
+    if (isSubmitting && submitWaitSeconds >= 2) return "Sending verification code...";
+    if (isSubmitting) return "Verifying access...";
+    if (lockoutSeconds > 0 && !twoFactorChallenge) return `Locked (${formatTimer(lockoutSeconds)})`;
+    return twoFactorChallenge ? "Verify Code" : "Sign in";
+  })();
+
   return (
-    <main className="relative flex min-h-screen overflow-hidden bg-[#020817] px-4 py-8 text-slate-100 sm:px-6 lg:px-8">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(34,211,238,0.18),transparent_34rem),radial-gradient(circle_at_18%_78%,rgba(56,189,248,0.12),transparent_26rem),linear-gradient(135deg,#020817_0%,#061227_48%,#020817_100%)]" />
-      <div className="pointer-events-none absolute inset-0 opacity-[0.18] [background-image:linear-gradient(rgba(125,211,252,.22)_1px,transparent_1px),linear-gradient(90deg,rgba(125,211,252,.22)_1px,transparent_1px)] [background-size:56px_56px]" />
-      <div className="pointer-events-none absolute left-1/2 top-0 h-px w-[84rem] -translate-x-1/2 bg-gradient-to-r from-transparent via-cyan-200/50 to-transparent" />
-      <div className="pointer-events-none absolute -right-48 top-20 h-[34rem] w-[34rem] rounded-full border border-cyan-300/10" />
-      <div className="pointer-events-none absolute -right-32 top-36 h-[22rem] w-[22rem] rounded-full border border-sky-400/10" />
+    <main className="relative flex min-h-screen overflow-hidden bg-cyber-bg px-4 py-8 text-cyber-text sm:px-6 lg:px-8">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(34,211,238,0.14),transparent_34rem),radial-gradient(circle_at_18%_78%,rgba(139,92,246,0.08),transparent_26rem),linear-gradient(135deg,#060B13_0%,#0B1220_48%,#060B13_100%)]" />
+      <div className="pointer-events-none absolute inset-0 opacity-[0.18] [background-image:linear-gradient(rgba(34,211,238,.18)_1px,transparent_1px),linear-gradient(90deg,rgba(34,211,238,.18)_1px,transparent_1px)] [background-size:56px_56px]" />
+      <div className="pointer-events-none absolute left-1/2 top-0 h-px w-[84rem] -translate-x-1/2 bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
+      <div className="pointer-events-none absolute -right-48 top-20 h-[34rem] w-[34rem] rounded-full border border-cyan-400/10" />
+      <div className="pointer-events-none absolute -right-32 top-36 h-[22rem] w-[22rem] rounded-full border border-violet-400/10" />
 
       <section className="relative z-10 mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center gap-10 lg:grid-cols-[1fr_28rem]">
         <div className="hidden max-w-2xl lg:block">
@@ -137,10 +171,10 @@ export function LoginPage() {
             Secure Access
           </div>
 
-          <h1 className="mt-8 max-w-3xl text-5xl font-black leading-tight text-white xl:text-6xl">
+          <h1 className="mt-8 max-w-3xl text-5xl font-black leading-tight text-cyber-text xl:text-6xl">
             Real-time defense intelligence for modern SOC teams.
           </h1>
-          <p className="mt-5 max-w-xl text-lg leading-8 text-slate-300">
+          <p className="mt-5 max-w-xl text-lg leading-8 text-cyber-muted">
             LogShield brings risk detection, alert triage, and security monitoring into one polished command surface.
           </p>
 
@@ -150,29 +184,29 @@ export function LoginPage() {
               { icon: Fingerprint, label: "Risk Scoring" },
               { icon: Network, label: "Incident Triage" },
             ].map(item => (
-              <div key={item.label} className="rounded-2xl border border-white/10 bg-white/[0.045] p-4 shadow-2xl shadow-cyan-950/20 backdrop-blur">
-                <item.icon className="h-5 w-5 text-cyan-200" />
-                <p className="mt-3 text-sm font-semibold text-slate-100">{item.label}</p>
+              <div key={item.label} className="rounded-2xl border border-cyan-400/12 bg-cyber-elevated/50 p-4 shadow-2xl shadow-cyan-950/20 backdrop-blur">
+                <item.icon className="h-5 w-5 text-cyan-300" />
+                <p className="mt-3 text-sm font-semibold text-cyber-text">{item.label}</p>
               </div>
             ))}
           </div>
         </div>
 
         <div className="mx-auto w-full max-w-md">
-          <section className="relative rounded-[2rem] border border-white/10 bg-slate-950/70 p-1 shadow-[0_30px_100px_rgba(0,0,0,0.55),0_0_80px_rgba(34,211,238,0.13)] backdrop-blur-2xl">
-            <div className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-cyan-200/70 to-transparent" />
-            <div className="rounded-[1.75rem] border border-white/[0.06] bg-gradient-to-b from-white/[0.08] to-white/[0.025] p-6 sm:p-8">
+          <section className="relative rounded-[2rem] border border-cyan-400/15 bg-cyber-surface/80 p-1 shadow-[0_30px_100px_rgba(0,0,0,0.55),0_0_80px_rgba(34,211,238,0.1)] backdrop-blur-2xl">
+            <div className="absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-cyber-cyan/50 to-transparent" />
+            <div className="rounded-[1.75rem] border border-cyan-400/8 bg-gradient-to-b from-white/[0.06] to-white/[0.015] p-6 sm:p-8">
               <div className="flex items-center gap-4">
                 <LogShieldEmblem />
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.26em] text-cyan-200">LogShield</p>
-                  <h2 className="mt-1 text-2xl font-black text-white">SOC Tier 1 Console</h2>
+                  <p className="text-xs font-semibold uppercase tracking-[0.26em] text-cyan-300">LogShield</p>
+                  <h2 className="mt-1 text-2xl font-black text-cyber-text">SOC Tier 1 Console</h2>
                 </div>
               </div>
 
               <div className="mt-8">
-                <h3 className="text-3xl font-bold tracking-tight text-white">{twoFactorChallenge ? "Admin Verification" : "Sign in securely"}</h3>
-                <p className="mt-2 text-sm leading-6 text-slate-400">
+                <h3 className="text-3xl font-bold tracking-tight text-cyber-text">{twoFactorChallenge ? "Admin Verification" : "Sign in securely"}</h3>
+                <p className="mt-2 text-sm leading-6 text-cyber-muted">
                   {twoFactorChallenge ? verificationSubtitle : "Access your monitoring workspace and continue investigating active security signals."}
                 </p>
               </div>
@@ -181,14 +215,14 @@ export function LoginPage() {
                 {!twoFactorChallenge ? (
                   <>
                     <label className="block">
-                      <span className="text-sm font-medium text-slate-300">Email address</span>
-                      <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3.5 text-slate-100 shadow-inner shadow-black/30 transition focus-within:border-cyan-300/70 focus-within:ring-4 focus-within:ring-cyan-300/10">
-                        <Mail className="h-5 w-5 text-cyan-200/80" />
+                      <span className="text-sm font-medium text-cyber-text">Email address</span>
+                      <span className="mt-2 flex items-center gap-3 rounded-2xl border border-cyan-400/15 bg-cyber-surface/80 px-4 py-3.5 text-cyber-text shadow-inner shadow-black/30 transition focus-within:border-cyber-cyan/50 focus-within:ring-4 focus-within:ring-cyber-cyan/10">
+                        <Mail className="h-5 w-5 text-cyan-300/80" />
                         <input
                           type="email"
                           value={email}
                           onChange={e => setEmail(e.target.value)}
-                          className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600"
+                          className="w-full bg-transparent text-sm outline-none placeholder:text-cyber-muted"
                           placeholder="you@company.com"
                           autoComplete="username"
                           required
@@ -197,14 +231,14 @@ export function LoginPage() {
                     </label>
 
                     <label className="block">
-                      <span className="text-sm font-medium text-slate-300">Password</span>
-                      <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3.5 text-slate-100 shadow-inner shadow-black/30 transition focus-within:border-cyan-300/70 focus-within:ring-4 focus-within:ring-cyan-300/10">
-                        <Lock className="h-5 w-5 text-cyan-200/80" />
+                      <span className="text-sm font-medium text-cyber-text">Password</span>
+                      <span className="mt-2 flex items-center gap-3 rounded-2xl border border-cyan-400/15 bg-cyber-surface/80 px-4 py-3.5 text-cyber-text shadow-inner shadow-black/30 transition focus-within:border-cyber-cyan/50 focus-within:ring-4 focus-within:ring-cyber-cyan/10">
+                        <Lock className="h-5 w-5 text-cyan-300/80" />
                         <input
                           type={showPassword ? "text" : "password"}
                           value={password}
                           onChange={e => setPassword(e.target.value)}
-                          className="w-full bg-transparent text-sm outline-none placeholder:text-slate-600"
+                          className="w-full bg-transparent text-sm outline-none placeholder:text-cyber-muted"
                           placeholder="Enter your password"
                           autoComplete="current-password"
                           required
@@ -212,7 +246,7 @@ export function LoginPage() {
                         <button
                           type="button"
                           onClick={() => setShowPassword(value => !value)}
-                          className="rounded-lg p-1 text-slate-400 transition hover:bg-white/5 hover:text-cyan-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/70"
+                          className="rounded-lg p-1 text-cyber-muted transition hover:bg-cyber-elevated hover:text-cyan-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyber-cyan/50"
                           aria-label={showPassword ? "Hide password" : "Show password"}
                         >
                           {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
@@ -222,18 +256,18 @@ export function LoginPage() {
                   </>
                 ) : (
                   <>
-                    <div className="rounded-2xl border border-cyan-300/20 bg-cyan-300/10 p-4 text-sm leading-6 text-cyan-100">
+                    <div className="rounded-2xl border border-cyber-cyan/20 bg-cyber-cyan/10 p-4 text-sm leading-6 text-cyan-200">
                       {twoFactorChallenge.message}
                     </div>
                     <label className="block">
-                      <span className="text-sm font-medium text-slate-300">6-digit verification code</span>
-                      <span className="mt-2 flex items-center gap-3 rounded-2xl border border-slate-700/80 bg-slate-950/80 px-4 py-3.5 text-slate-100 shadow-inner shadow-black/30 transition focus-within:border-cyan-300/70 focus-within:ring-4 focus-within:ring-cyan-300/10">
-                        <KeyRound className="h-5 w-5 text-cyan-200/80" />
+                      <span className="text-sm font-medium text-cyber-text">6-digit verification code</span>
+                      <span className="mt-2 flex items-center gap-3 rounded-2xl border border-cyan-400/15 bg-cyber-surface/80 px-4 py-3.5 text-cyber-text shadow-inner shadow-black/30 transition focus-within:border-cyber-cyan/50 focus-within:ring-4 focus-within:ring-cyber-cyan/10">
+                        <KeyRound className="h-5 w-5 text-cyan-300/80" />
                         <input
                           type="text"
                           value={otpCode}
                           onChange={e => setOtpCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                          className="w-full bg-transparent text-sm tracking-[0.35em] outline-none placeholder:text-slate-600"
+                          className="w-full bg-transparent text-sm tracking-[0.35em] outline-none placeholder:text-cyber-muted"
                           placeholder="000000"
                           inputMode="numeric"
                           autoComplete="one-time-code"
@@ -245,29 +279,29 @@ export function LoginPage() {
                 )}
 
           {error && !lockoutSeconds && (
-                  <div className="flex items-start gap-3 rounded-2xl border border-amber-300/30 bg-amber-400/10 p-4 text-sm text-amber-100 shadow-[0_0_24px_rgba(251,191,36,0.08)]">
+                  <div className="flex items-start gap-3 rounded-2xl border border-amber-500/25 bg-amber-500/10 p-4 text-sm text-amber-200 shadow-[0_0_24px_rgba(245,158,11,0.06)]">
                     <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
                     <span>{error}</span>
                   </div>
           )}
           {lockoutSeconds > 0 && (
-                  <div className="rounded-2xl border border-red-300/30 bg-red-500/10 p-5 text-center shadow-[0_0_30px_rgba(248,113,113,0.1)]">
-                    <Lock className="mx-auto mb-2 h-8 w-8 text-red-300" />
-                    <p className="font-semibold text-red-100">Access temporarily paused</p>
-                    <p className="mt-2 text-3xl font-bold tabular-nums text-red-200">{formatTimer(lockoutSeconds)}</p>
-                    <p className="mt-2 text-xs text-red-200/75">{error ?? "Too many failed login attempts. Please wait before trying again."}</p>
+                  <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-5 text-center shadow-[0_0_30px_rgba(239,68,68,0.08)]">
+                    <Lock className="mx-auto mb-2 h-8 w-8 text-red-400" />
+                    <p className="font-semibold text-red-200">Access temporarily paused</p>
+                    <p className="mt-2 text-3xl font-bold tabular-nums text-red-300">{formatTimer(lockoutSeconds)}</p>
+                    <p className="mt-2 text-xs text-red-300/75">{error ?? "Too many failed login attempts. Please wait before trying again."}</p>
                   </div>
           )}
 
                 <button
                   disabled={(lockoutSeconds > 0 && !twoFactorChallenge) || isSubmitting || (twoFactorChallenge ? otpCode.trim().length !== 6 : false)}
-                  className={`group flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-black text-slate-950 shadow-[0_18px_42px_rgba(34,211,238,0.24)] transition duration-300 focus:outline-none focus-visible:ring-4 focus-visible:ring-cyan-200/30 ${
+                  className={`group flex w-full items-center justify-center gap-2 rounded-2xl px-5 py-3.5 text-sm font-black text-cyber-bg shadow-[0_18px_42px_rgba(34,211,238,0.2)] transition duration-300 focus:outline-none focus-visible:ring-4 focus-visible:ring-cyber-cyan/30 ${
                     ((lockoutSeconds > 0 && !twoFactorChallenge) || isSubmitting || (twoFactorChallenge ? otpCode.trim().length !== 6 : false))
                       ? "cursor-not-allowed bg-slate-600 text-slate-300 shadow-none"
-                      : "bg-gradient-to-r from-cyan-200 via-cyan-300 to-sky-300 hover:-translate-y-0.5 hover:shadow-[0_24px_60px_rgba(34,211,238,0.32)]"
+                      : "bg-gradient-to-r from-cyan-200 via-cyber-cyan to-sky-300 hover:-translate-y-0.5 hover:shadow-[0_24px_60px_rgba(34,211,238,0.28)]"
                   }`}
                 >
-                  {isSubmitting ? (twoFactorChallenge ? "Verifying code..." : "Verifying access...") : lockoutSeconds > 0 && !twoFactorChallenge ? `Locked (${formatTimer(lockoutSeconds)})` : twoFactorChallenge ? "Verify Code" : "Sign in"}
+                  {submitLabel}
                   {!isSubmitting && (lockoutSeconds <= 0 || twoFactorChallenge) ? <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" /> : null}
                 </button>
                 {twoFactorChallenge ? (
@@ -286,14 +320,14 @@ export function LoginPage() {
                 ) : null}
               </form>
 
-              <div className="mt-7 border-t border-white/10 pt-5">
-                <p className="text-center text-sm text-slate-400">
+              <div className="mt-7 border-t border-cyan-400/12 pt-5">
+                <p className="text-center text-sm text-cyber-muted">
                   {twoFactorChallenge ? (
                     "Admin verification is required before access tokens are issued."
                   ) : (
                     <>
                       No account yet?{" "}
-                      <Link to="/register" className="font-semibold text-cyan-200 transition hover:text-white focus:outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-cyan-300/70">
+                      <Link to="/register" className="font-semibold text-cyan-300 transition hover:text-white focus:outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-cyber-cyan/50">
                         Create one
                       </Link>
                     </>
@@ -303,7 +337,7 @@ export function LoginPage() {
             </div>
           </section>
 
-          <p className="mt-5 text-center text-xs text-slate-500">
+          <p className="mt-5 text-center text-xs text-cyber-muted">
             Protected access for security operations and incident response teams.
           </p>
         </div>

@@ -276,7 +276,7 @@ class URLScannerService:
                 undetected_count=normalized_result["summary"]["undetected"],
                 categories=json.dumps(normalized_result.get("categories", [])),
                 provider_reference=normalized_result["raw_reference"]["provider_id"],
-                raw_summary=str(normalized_result),
+                raw_summary=json.dumps(normalized_result),
                 last_analysis_date=self._coerce_provider_datetime(normalized_result.get("last_analysis_date")),
                 submitted_by_user_id=user.id,
             )
@@ -305,7 +305,7 @@ class URLScannerService:
                 undetected_count=0,
                 categories=None,
                 provider_reference=None,
-                raw_summary=str({"error": str(e)}),
+                raw_summary=json.dumps({"error": str(e)}),
                 last_analysis_date=None,
                 submitted_by_user_id=user.id,
             )
@@ -313,18 +313,33 @@ class URLScannerService:
             db.add(result)
             db.commit()
             db.refresh(result)
-            
-            raise e
+
+            recent_result = await self._get_cached_result(db, url_hash)
+            if recent_result:
+                return recent_result
+
+            # Return a graceful fallback result instead of propagating provider
+            # failures to the client after persistence succeeded.
+            return result
     
     async def _get_cached_result(self, db: Session, url_hash: str) -> URLScanResult | None:
         """Get cached result if available and recent."""
         cache_ttl_hours = getattr(self.provider, 'cache_ttl_hours', 24)
         cutoff_time = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=cache_ttl_hours)
         
-        result = db.query(URLScanResult).filter(
+        base_query = db.query(URLScanResult).filter(
             URLScanResult.url_hash == url_hash,
             URLScanResult.created_at >= cutoff_time
+        )
+
+        result = base_query.filter(
+            URLScanResult.status != "unknown"
         ).order_by(URLScanResult.created_at.desc()).first()
+
+        if result:
+            return result
+
+        result = base_query.order_by(URLScanResult.created_at.desc()).first()
         
         return result
     

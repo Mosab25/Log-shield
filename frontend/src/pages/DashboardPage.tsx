@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { AlertTriangle, Database, RefreshCw, ShieldAlert, Target, Users, BellRing } from "lucide-react";
 import { apiClient } from "../api/client";
 import { AlertsTable } from "../components/AlertsTable";
@@ -7,9 +7,30 @@ import { LogsTable } from "../components/LogsTable";
 import { RiskDistributionChart } from "../components/RiskDistributionChart";
 import { StatCard } from "../components/StatCard";
 import { TimelineChart } from "../components/TimelineChart";
+import { InfoHint, RecommendedActions } from "../components/Guidance";
 import { EmptyState, ErrorState, PageHeader, SectionHeader, SkeletonBlock } from "../components/UI";
+import { deriveAttackSignalFromText } from "../securitySignals";
 
 const initialFilters: DashboardFilters = { severity: "", source: "", status: "" };
+const FILE_ANALYSIS_STORAGE_KEY = "logshield.fileAnalyzer.findings";
+
+function countLocalScriptSignals(): number {
+  try {
+    const raw = localStorage.getItem(FILE_ANALYSIS_STORAGE_KEY);
+    const findings = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(findings)) return 0;
+    return findings.filter((finding: any) =>
+      deriveAttackSignalFromText(
+        finding?.attack_name,
+        finding?.classification,
+        finding?.event_type,
+        finding?.risk_reasons?.join?.(" "),
+      ).isAttack,
+    ).length;
+  } catch {
+    return 0;
+  }
+}
 
 function query(filters: DashboardFilters) {
   const p = new URLSearchParams();
@@ -29,6 +50,7 @@ export function DashboardPage() {
   const [events, setEvents] = useState<any[]>([]);
   const [alerts, setAlerts] = useState<any[]>([]);
   const [topUsers, setTopUsers] = useState<any[]>([]);
+  const [scriptAttackSignals, setScriptAttackSignals] = useState(0);
   const [loading, setLoading] = useState(true);
   const [chartsLoading, setChartsLoading] = useState(true);
   const [secondaryLoading, setSecondaryLoading] = useState(true);
@@ -73,14 +95,26 @@ export function DashboardPage() {
       
       // Wait for secondary data
       const [u, e, a] = await secondaryPromise;
-      setTopUsers(u.status === "fulfilled" && Array.isArray(u.value?.items) ? u.value.items : []);
-      setEvents(e.status === "fulfilled" && Array.isArray(e.value?.items) ? e.value.items : []);
-      setAlerts(a.status === "fulfilled" && Array.isArray(a.value?.items) ? a.value.items : []);
+      const topUsersItems = u.status === "fulfilled" && Array.isArray(u.value?.items) ? u.value.items : [];
+      const eventItems = e.status === "fulfilled" && Array.isArray(e.value?.items) ? e.value.items : [];
+      const alertItems = a.status === "fulfilled" && Array.isArray(a.value?.items) ? a.value.items : [];
+
+      setTopUsers(topUsersItems);
+      setEvents(eventItems);
+      setAlerts(alertItems);
+
+      const signalFromEvents = eventItems.filter((item: any) =>
+        deriveAttackSignalFromText(item?.message, item?.raw_message, item?.event_type, item?.source, item?.user_agent).isAttack,
+      ).length;
+      const signalFromAlerts = alertItems.filter((item: any) =>
+        deriveAttackSignalFromText(item?.title, item?.description, item?.source_ip, item?.username).isAttack,
+      ).length;
+      setScriptAttackSignals(signalFromEvents + signalFromAlerts + countLocalScriptSignals());
       setSecondaryLoading(false);
       
       // Check for any failures
-      const allResults = [summaryResult, t, r, u, e, a];
-      const failures = allResults.filter(item => item.status === "rejected").length;
+      const settledResults = [t, r, u, e, a];
+      const failures = settledResults.filter(item => item.status === "rejected").length;
       
       if (failures > 0) {
         const failedEndpoints = [];
@@ -103,24 +137,29 @@ export function DashboardPage() {
     }
   }
 
-  useEffect(() => {
+  const debouncedLoadDashboard = useCallback(() => {
     void loadDashboard();
   }, [applied, refreshTick]);
 
-  const hasAnyData =
-    Boolean(summary) ||
-    timeline.length > 0 ||
-    risk.length > 0 ||
-    topUsers.length > 0 ||
-    events.length > 0 ||
-    alerts.length > 0;
+  const hasAnyData = useMemo(() => {
+    return Boolean(summary) ||
+           timeline.length > 0 ||
+           risk.length > 0 ||
+           topUsers.length > 0 ||
+           events.length > 0 ||
+           alerts.length > 0;
+  }, [summary, timeline, risk, topUsers, events, alerts]);
+
+  useEffect(() => {
+    debouncedLoadDashboard();
+  }, [debouncedLoadDashboard]);
 
   return (
     <div className="space-y-8">
       <PageHeader
         eyebrow="SOC Tier 1"
         title="Dashboard"
-        description="Monitor log volume, alert pressure, risk distribution, and recent security events from one command surface."
+        description="Monitor alerts, risk, incidents, failed activity, and suspicious behavior from one guided SOC command surface."
         icon={ShieldAlert}
         actions={
           <button onClick={() => setRefreshTick(v => v + 1)} disabled={loading} className="soc-button-ghost">
@@ -128,6 +167,19 @@ export function DashboardPage() {
             Refresh
           </button>
         }
+      />
+
+      <InfoHint title="What you are looking at">
+        The dashboard is the fastest way to understand the current security posture. Use it to spot alert pressure, critical risk, recent evidence, and where to continue investigation.
+      </InfoHint>
+
+      <RecommendedActions
+        actions={[
+          "Review critical and high-risk alerts first.",
+          "Open active incidents and confirm ownership.",
+          "Check recent blocked IPs for repeated activity.",
+          "Review failed login activity and targeted users.",
+        ]}
       />
 
       <Filters filters={filters} onChange={setFilters} onApply={() => setApplied(filters)} />
@@ -152,12 +204,13 @@ export function DashboardPage() {
 
       {!loading && hasAnyData ? (
         <>
-          <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-5">
+          <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-6">
             <StatCard title="Total Logs" value={summary?.total_logs ?? 0} icon={Database} />
             <StatCard title="Total Alerts" value={summary?.total_alerts ?? 0} icon={AlertTriangle} />
             <StatCard title="Open Alerts" value={summary?.open_alerts ?? 0} icon={BellRing} />
             <StatCard title="Critical Alerts" value={summary?.critical_alerts ?? 0} icon={ShieldAlert} />
             <StatCard title="High Risk IPs" value={summary?.high_risk_ips ?? 0} icon={Target} />
+            <StatCard title="Script Attack Signals" value={scriptAttackSignals} icon={ShieldAlert} />
           </section>
 
           <section className="grid gap-6 xl:grid-cols-2">
@@ -195,11 +248,11 @@ export function DashboardPage() {
                 ) : (
                   <div className="grid gap-3 lg:grid-cols-2">
                     {topUsers.map((user: any) => (
-                      <div key={user.username} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/75 px-4 py-3 text-sm">
-                        <span className="font-bold text-slate-100">{user.username}</span>
-                        <span className="text-slate-400">Alerts: {user.alert_count ?? 0}</span>
-                        <span className="text-slate-400">Logs: {user.log_count ?? 0}</span>
-                        <span className="text-slate-400">Max Risk: {user.max_risk_score ?? 0}</span>
+                      <div key={user.username} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-400/10 bg-cyber-elevated/60 px-4 py-3 text-sm">
+                        <span className="font-bold text-cyber-text">{user.username}</span>
+                        <span className="text-cyber-muted">Alerts: {user.alert_count ?? 0}</span>
+                        <span className="text-cyber-muted">Logs: {user.log_count ?? 0}</span>
+                        <span className="text-cyber-muted">Max Risk: {user.max_risk_score ?? 0}</span>
                       </div>
                     ))}
                   </div>

@@ -55,7 +55,7 @@ class EmailService:
                 "User-Agent": "LogShield/1.0",
             },
         )
-        timeout = max(5, settings.email_request_timeout_seconds)
+        timeout = min(10, max(3, settings.email_request_timeout_seconds))
         try:
             with request.urlopen(req, timeout=timeout) as response:
                 status_code = getattr(response, "status", 0)

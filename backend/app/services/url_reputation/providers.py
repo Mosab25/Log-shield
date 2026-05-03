@@ -139,6 +139,21 @@ class VirusTotalProvider(URLReputationProvider):
         
         # Get last analysis date
         last_analysis_date = attributes.get("last_analysis_date")
+
+        # Keep a compact explanation of engines that affected the verdict.
+        # This avoids storing the full provider payload while still making the
+        # LogShield report explainable.
+        engine_results = []
+        for engine_name, engine_data in attributes.get("last_analysis_results", {}).items():
+            category = engine_data.get("category", "unknown")
+            if category in {"malicious", "suspicious"}:
+                engine_results.append({
+                    "engine": engine_name,
+                    "category": category,
+                    "result": engine_data.get("result") or category,
+                    "method": engine_data.get("method") or "blacklist",
+                })
+        engine_results = engine_results[:20]
         
         # Generate recommendation
         if status == "malicious":
@@ -163,6 +178,7 @@ class VirusTotalProvider(URLReputationProvider):
                 "undetected": undetected,
                 "timeout": timeout,
             },
+            "engine_results": engine_results,
             "categories": list(categories.values()) if categories else [],
             "last_analysis_date": last_analysis_date,
             "recommendation": recommendation,

@@ -31,3 +31,38 @@ class AuditLogListResponse(BaseModel):
     skip: int
     limit: int
     items: list[AuditLogResponse]
+
+
+# --- Audit Summary Schemas ---
+
+class AuditMostActiveUser(BaseModel):
+    id: int
+    email: str
+    name: str
+
+
+class AuditMostCommonAction(BaseModel):
+    action: str
+    count: int
+
+
+class AuditCategoryCount(BaseModel):
+    category: str
+    count: int
+
+
+class AuditTimelinePoint(BaseModel):
+    hour: str
+    count: int
+
+
+class AuditSummaryResponse(BaseModel):
+    total_events_today: int
+    sensitive_events_today: int
+    failed_logins_today: int
+    admin_actions_today: int
+    most_active_user: AuditMostActiveUser | None
+    most_common_action: AuditMostCommonAction | None
+    events_by_category: list[AuditCategoryCount]
+    events_timeline: list[AuditTimelinePoint]
+    insights: list[str]

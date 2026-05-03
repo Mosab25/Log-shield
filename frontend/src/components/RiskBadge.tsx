@@ -6,10 +6,10 @@ function level(score: number) {
 }
 
 function cls(score: number) {
-  if (score <= 30) return "border-emerald-400/30 bg-emerald-400/10 text-emerald-300";
-  if (score <= 60) return "border-amber-400/30 bg-amber-400/10 text-amber-300";
-  if (score <= 85) return "border-orange-400/30 bg-orange-400/10 text-orange-300";
-  return "border-red-400/30 bg-red-400/10 text-red-300";
+  if (score <= 30) return "border-cyber-green/25 bg-cyber-green/10 text-cyber-green";
+  if (score <= 60) return "border-cyber-amber/25 bg-cyber-amber/10 text-cyber-amber";
+  if (score <= 85) return "border-cyber-amber/25 bg-cyber-amber/10 text-cyber-amber";
+  return "border-cyber-red/30 bg-cyber-red/10 text-cyber-red";
 }
 
 export function RiskBadge({ score }: { score: number }) {

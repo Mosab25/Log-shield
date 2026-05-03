@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.middleware.ip_block import IPBlockMiddleware
 from app.middleware.rate_limit import InMemoryRateLimitMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
+from app.middleware.performance_logging import PerformanceLoggingMiddleware
 
 logger = logging.getLogger("logshield")
 
@@ -32,6 +33,7 @@ app.add_middleware(
     auth_requests_per_minute=settings.auth_rate_limit_per_minute,
 )
 app.add_middleware(IPBlockMiddleware)
+app.add_middleware(PerformanceLoggingMiddleware)  # Add performance logging
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,

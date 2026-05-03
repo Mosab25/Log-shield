@@ -4,6 +4,7 @@ import { Briefcase, Link2, Plus } from "lucide-react";
 import { apiClient } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { AlertDetailsPanel } from "../components/AlertDetailsPanel";
+import { EvidenceExplanation, InvestigationChecklist, RecommendedActions, RiskExplanation } from "../components/Guidance";
 import { NotesPanel } from "../components/NotesPanel";
 import { EmptyState, ErrorState, SectionHeader, SkeletonBlock } from "../components/UI";
 
@@ -106,6 +107,46 @@ export function AlertDetailsPage() {
   return (
     <div className="space-y-6">
       <AlertDetailsPanel alert={alert} risk={risk} />
+
+      <section className="grid gap-4 xl:grid-cols-3">
+        <InvestigationChecklist
+          title="How to triage this alert"
+          steps={[
+            "Review severity and risk score.",
+            "Check source IP and affected user.",
+            "Review related evidence logs.",
+            "Search related CVE or IOC if present.",
+            "Create or link to an incident.",
+            "Add analyst notes and update status.",
+          ]}
+        />
+        <EvidenceExplanation
+          title="Why this alert was generated"
+          points={[
+            alert.description || "The detection rule matched suspicious event evidence.",
+            alert.mitre_technique ? `MITRE technique mapping: ${alert.mitre_technique}.` : "No MITRE mapping is attached yet.",
+            alert.attack_type ? `Attack family: ${String(alert.attack_type).replace(/_/g, " ")}.` : "Review related logs to confirm the activity pattern.",
+          ]}
+        />
+        <RiskExplanation
+          score={alert.risk_score}
+          reasons={[
+            `Severity is ${alert.severity || "not set"}.`,
+            alert.source_ip ? `Source IP observed: ${alert.source_ip}.` : "No source IP is attached.",
+            alert.username ? `Affected user: ${alert.username}.` : "No affected user is attached.",
+          ]}
+        />
+      </section>
+
+      <RecommendedActions
+        title="Continue the investigation"
+        actions={[
+          "Open related logs and verify evidence.",
+          "Search IOCs in Threat Intel or URL Scanner.",
+          "Link this alert to an incident case.",
+          "Document conclusions in analyst notes.",
+        ]}
+      />
 
       <section className="soc-panel p-5">
         <SectionHeader title="Incident Case Linkage" icon={Briefcase} />

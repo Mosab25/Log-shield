@@ -9,8 +9,67 @@ export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (() => {
 
 const ACCESS_TOKEN_KEY = "logshield_access_token";
 const REFRESH_TOKEN_KEY = "logshield_refresh_token";
+const AUTH_USER_KEY = "logshield_auth_user";
 const LEGACY_ACCESS_TOKEN_KEYS = ["access_token", "token", "authToken", "logshield_token"];
 const LEGACY_REFRESH_TOKEN_KEYS = ["refresh_token", "logshield_refresh"];
+
+// Simple cache for GET requests
+interface CacheEntry {
+  data: unknown;
+  timestamp: number;
+  ttl: number;
+}
+
+const cache = new Map<string, CacheEntry>();
+const DEFAULT_CACHE_TTL = 30000; // 30 seconds
+
+// Different TTLs for different endpoint types
+const CACHE_TTL = {
+  dashboard: 15000, // 15s - fast changing data
+  alerts: 15000, // 15s - fast changing data
+  logs: 30000, // 30s - medium changing data
+  security_center: 60000, // 1min - slower changing data
+  audit_logs: 30000, // 30s - medium changing data
+  users: 60000, // 1min - slower changing data
+  awareness_scores: 120000, // 2min - rarely changing
+  default: 30000 // 30s default
+} as const;
+
+function getCacheKey(url: string, params?: Record<string, any>): string {
+  const paramString = params ? JSON.stringify(params) : "";
+  return `${url}:${paramString}`;
+}
+
+function getFromCache<T>(url: string, params?: Record<string, any>): T | null {
+  const key = getCacheKey(url, params);
+  const entry = cache.get(key);
+  if (!entry) return null;
+  
+  const now = Date.now();
+  if (now - entry.timestamp > entry.ttl) {
+    cache.delete(key);
+    return null;
+  }
+  
+  return entry.data as T;
+}
+
+function setCache<T>(url: string, data: T, ttl: number = DEFAULT_CACHE_TTL, params?: Record<string, any>): void {
+  const key = getCacheKey(url, params);
+  cache.set(key, {
+    data,
+    timestamp: Date.now(),
+    ttl
+  });
+}
+
+function invalidateCache(pattern: string): void {
+  for (const [key] of cache.keys()) {
+    if (key.includes(pattern)) {
+      cache.delete(key);
+    }
+  }
+}
 
 export interface AuthUser {
   id: number;
@@ -128,9 +187,23 @@ export const tokenStorage = {
     localStorage.setItem(ACCESS_TOKEN_KEY, accessToken);
     if (refreshToken) localStorage.setItem(REFRESH_TOKEN_KEY, refreshToken);
   },
+  getUser<T>(): T | null {
+    const rawUser = localStorage.getItem(AUTH_USER_KEY);
+    if (!rawUser) return null;
+    try {
+      return JSON.parse(rawUser) as T;
+    } catch {
+      localStorage.removeItem(AUTH_USER_KEY);
+      return null;
+    }
+  },
+  setUser(user: unknown): void {
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  },
   clearTokens(): void {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem(AUTH_USER_KEY);
     for (const key of [...LEGACY_ACCESS_TOKEN_KEYS, ...LEGACY_REFRESH_TOKEN_KEYS]) {
       localStorage.removeItem(key);
     }
@@ -154,11 +227,22 @@ async function parseBody(response: Response): Promise<unknown> {
 
 function messageFrom(body: unknown): string {
   if (typeof body === "string") return body;
-  if (typeof body === "object" && body !== null && "detail" in body)
-    return JSON.stringify((body as { detail: unknown }).detail).replace(
-      /^"|"$/g,
-      "",
-    );
+  if (typeof body === "object" && body !== null && "detail" in body) {
+    const detail = (body as { detail: unknown }).detail;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail)) {
+      return detail
+        .map(item => {
+          if (typeof item !== "object" || item === null) return String(item);
+          const record = item as { loc?: unknown; msg?: unknown };
+          const field = Array.isArray(record.loc) ? record.loc.filter(part => part !== "body").join(".") : "";
+          const message = typeof record.msg === "string" ? record.msg : "Invalid value.";
+          return field ? `${field}: ${message}` : message;
+        })
+        .join(" ");
+    }
+    return JSON.stringify(detail).replace(/^"|"$/g, "");
+  }
   return "API request failed.";
 }
 
@@ -188,6 +272,7 @@ async function refreshAccessToken(): Promise<string | null> {
   return data.access_token;
 }
 
+
 export async function apiRequest<T>(
   path: string,
   options: {
@@ -195,22 +280,54 @@ export async function apiRequest<T>(
     body?: unknown;
     auth?: boolean;
     retry?: boolean;
+    cache?: boolean;
   } = {},
 ): Promise<T> {
-  const { method = "GET", body, auth = true, retry = true } = options;
+  const { method = "GET", body, auth = true, retry = true, cache: cacheEnabled = true } = options;
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (auth) Object.assign(headers, getAuthHeaders());
+
+  const startTime = Date.now();
+  const isDev = import.meta.env.DEV;
+
+  // Check cache for GET requests
+  if (method === "GET" && cacheEnabled && !body) {
+    const cacheKey = getCacheKey(path);
+    const entry = cache.get(cacheKey);
+    if (entry) {
+      const now = Date.now();
+      if (now - entry.timestamp > entry.ttl) {
+        cache.delete(cacheKey);
+      } else {
+        if (isDev) {
+          console.log(`[API] GET ${path} — cache hit — ${Date.now() - entry.timestamp}ms old`);
+        }
+        return entry.data as T;
+      }
+    }
+  }
+
   const response = await fetch(buildUrl(path), {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  if (response.status === 401 && auth && retry) {
-    const newToken = await refreshAccessToken();
-    if (newToken)
-      return apiRequest<T>(path, { method, body, auth, retry: false });
+
+  const duration = Date.now() - startTime;
+
+  if (isDev) {
+    console.log(`[API] ${method} ${path} — ${duration}ms — ${response.ok ? 'success' : 'error'} — ${response.status}`);
+
+    if (method === "GET") {
+      const contentLength = response.headers.get('content-length');
+      if (contentLength) {
+        const sizeKB = Math.round(parseInt(contentLength) / 1024);
+        console.log(`[API] GET ${path} — payload: ${sizeKB}KB — ${response.ok ? 'cache miss' : 'cache set'}`);
+      }
+    }
   }
+
   if (!response.ok) {
     const parsed = await parseBody(response);
     if ((response.status === 403 || response.status === 429) && isBlockedAccessResponse(parsed)) {
@@ -225,13 +342,21 @@ export async function apiRequest<T>(
     }
     throw new ApiError(messageFrom(parsed), response.status, parsed);
   }
+
   if (response.status === 204) return undefined as T;
-  return parseBody(response) as Promise<T>;
+  const result = parseBody(response) as Promise<T>;
+
+  if (method === "GET" && cacheEnabled && !body) {
+    setCache(path, result);
+  }
+
+  return result;
 }
 
 export const apiClient = {
   get: <T>(path: string) => apiRequest<T>(path),
   getPublic: <T>(path: string) => apiRequest<T>(path, { auth: false }),
+  getUncached: <T>(path: string) => apiRequest<T>(path, { cache: false }),
   login: (body: { email: string; password: string }) =>
     apiRequest<LoginSuccessResponse | Login2FARequiredResponse>("/auth/login", { method: "POST", body, auth: false }),
   post: <T>(path: string, body?: unknown, auth = true) =>
@@ -244,5 +369,9 @@ export const apiClient = {
     apiRequest<SelfBlockCheckResponse>("/blocks/check-self", { auth: false }),
   patch: <T>(path: string, body?: unknown) =>
     apiRequest<T>(path, { method: "PATCH", body }),
-  delete: <T>(path: string) => apiRequest<T>(path, { method: "DELETE" }),
+  delete: <T>(path: string) =>
+    apiRequest<T>(path, { method: "DELETE" }),
+  invalidateCache: (pattern: string) => {
+    invalidateCache(pattern);
+  },
 };

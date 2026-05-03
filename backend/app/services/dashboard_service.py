@@ -10,6 +10,7 @@ from app.models.alert_related_log import AlertRelatedLog
 from app.models.normalized_log import NormalizedLog
 from app.models.raw_log import RawLog
 from app.utils.cache import cache, short_cache, long_cache
+from app.utils.performance_cache import cached_result, CACHE_TTL
 
 
 class DashboardService:
@@ -87,15 +88,9 @@ class DashboardService:
         return rows
 
     @classmethod
+    @cached_result("dashboard_summary", CACHE_TTL["dashboard_summary"])
     def get_summary(cls, *, db: Session, start_date=None, end_date=None, severity=None, source=None, status=None):
-        # Create cache key based on filters
         cache_key = f"dashboard_summary_{md5(str([start_date, end_date, severity, source, status]).encode()).hexdigest()}"
-        
-        # Try to get from cache first - use long cache for summary
-        cached_result = long_cache.get(cache_key)
-        if cached_result:
-            return cached_result
-        
         filters = cls._filters_with_source(db, start_date, end_date, severity, source, status)
         
         # Use cached counts for logs if no date filters
@@ -138,7 +133,7 @@ class DashboardService:
                 Alert, Alert.normalized_log_id == NormalizedLog.id
             ).where(*high_risk_filters)
             
-            high_risk_ip_count = ip_query.scalar_one()
+            high_risk_ip_count = db.execute(ip_query).scalar_one()
         except Exception:
             # Fallback to simpler query if the complex one fails
             high_risk_ip_count = 0

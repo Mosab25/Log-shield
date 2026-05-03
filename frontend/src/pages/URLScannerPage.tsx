@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { AlertCircle, CheckCircle, ExternalLink, RefreshCw, Search, Shield, ShieldAlert, ShieldX, XCircle, Clock, Copy, Eye, History } from "lucide-react";
 import { apiClient } from "../api/client";
+import { InfoHint, RecommendedActions, VerdictBadge } from "../components/Guidance";
 import { EmptyState, ErrorState, PageHeader, SectionHeader, SkeletonBlock } from "../components/UI";
 
 interface URLScanRequest {
@@ -183,6 +185,19 @@ export function URLScannerPage() {
     return url.replace(/[.]/g, "[.]").replace(/http/g, "hxxp");
   }
 
+  function explainStatus(status: string) {
+    switch (status) {
+      case "safe":
+        return "No malicious reputation was found by the provider, but this does not prove the URL is harmless. Continue with normal caution.";
+      case "suspicious":
+        return "Some signals or vendors suggest risk. Review the detections and avoid opening the URL directly until evidence is understood.";
+      case "malicious":
+        return "The URL has malicious reputation. Do not open it; preserve evidence and investigate related IOCs.";
+      default:
+        return "There is not enough reputation data. Treat the URL with caution and continue analysis with domain, IP, and IOC extraction.";
+    }
+  }
+
   if (historyLoading && !scanResult) {
     return (
       <div className="space-y-6">
@@ -205,6 +220,10 @@ export function URLScannerPage() {
         title="URL Reputation Scanner"
         description="Analyze suspicious URLs using external reputation intelligence before opening or sharing them."
       />
+
+      <InfoHint title="What the verdict means">
+        This scanner summarizes reputation signals like a SOC triage view: verdict, detection counts, score, source, and what to do next. Unknown does not mean safe; it means there was not enough reputation evidence.
+      </InfoHint>
 
       {/* Scan Form */}
       <div className="soc-panel p-6">
@@ -263,7 +282,7 @@ export function URLScannerPage() {
 
       {/* Scan Result */}
       {scanResult && (
-        <div className="space-y-6">
+        <div id="url-scan-details" className="space-y-6 scroll-mt-6">
           {/* Result Summary Card */}
           <div className="soc-panel p-6">
             <div className="flex items-start justify-between mb-6">
@@ -276,9 +295,11 @@ export function URLScannerPage() {
                     {scanResult.status.charAt(0).toUpperCase() + scanResult.status.slice(1)}
                   </h3>
                   <p className="text-slate-300">{scanResult.recommendation}</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-400">{explainStatus(scanResult.status)}</p>
                 </div>
               </div>
               <div className="text-right">
+                <VerdictBadge verdict={scanResult.status} />
                 <div className={`text-2xl font-bold ${getScoreColor(scanResult.score)}`}>
                   {scanResult.score}/100
                 </div>
@@ -305,6 +326,16 @@ export function URLScannerPage() {
               </div>
             </div>
           </div>
+
+          <RecommendedActions
+            title="What to do next"
+            actions={[
+              "Defang the URL before sharing it.",
+              "Extract the domain, IP, and related IOCs.",
+              "Add suspicious or malicious results to incident evidence.",
+              "Block related IPs or domains when policy allows.",
+            ]}
+          />
 
           {/* Technical Details */}
           <div className="soc-panel p-6">
@@ -409,8 +440,14 @@ export function URLScannerPage() {
               <tbody>
                 {history.map((scan) => (
                   <tr key={scan.id}>
-                    <td className="text-slate-300 max-w-xs truncate" title={scan.url}>
-                      {scan.url}
+                    <td className="max-w-xs truncate" title={scan.url}>
+                      <Link
+                        to={`/url-scanner/${scan.id}`}
+                        className="max-w-full truncate text-left text-slate-200 transition-colors hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                        aria-label={`Open scan details for ${scan.url}`}
+                      >
+                        {scan.url}
+                      </Link>
                     </td>
                     <td>
                       <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium ${getStatusColor(scan.status)}`}>
@@ -423,9 +460,20 @@ export function URLScannerPage() {
                     <td className="text-slate-400">{formatDateTime(scan.scanned_at)}</td>
                     <td className="text-slate-300">{scan.scanned_by}</td>
                     <td>
+                      <Link
+                        to={`/url-scanner/${scan.id}`}
+                        className="mr-3 text-cyan-400 transition-colors hover:text-cyan-300"
+                        title="View scan details"
+                        aria-label={`View scan details for ${scan.url}`}
+                      >
+                        <Eye className="h-4 w-4" />
+                      </Link>
                       <button
+                        type="button"
                         onClick={() => copyToClipboard(scan.url, "history")}
-                        className="text-cyan-400 hover:text-cyan-300 transition-colors"
+                        className="text-cyan-400 transition-colors hover:text-cyan-300"
+                        title="Copy URL"
+                        aria-label={`Copy ${scan.url}`}
                       >
                         <Copy className="h-4 w-4" />
                       </button>

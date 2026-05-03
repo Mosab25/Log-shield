@@ -5,6 +5,9 @@ backend/.env
 backend/.env.local
 frontend/.env
 frontend/.env.local
+backend/env_content.txt
+backend/env_setup.txt
+backend/setup_env.py
 __pycache__/
 *.py[cod]
 *.pyc

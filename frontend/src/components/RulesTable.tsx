@@ -31,13 +31,13 @@ export function RulesTable({
               <tr key={rule.id}>
                 <td>
                   <p className="font-semibold text-white">{rule.name}</p>
-                  <p className="mt-1 max-w-xl text-sm text-slate-400">{rule.description || "No description provided."}</p>
+                  <p className="mt-1 max-w-xl text-sm text-cyber-muted">{rule.description || "No description provided."}</p>
                 </td>
                 <td><SeverityBadge severity={rule.severity} /></td>
-                <td className="text-slate-300">{rule.mitre_technique || "N/A"}</td>
+                <td className="text-cyber-muted">{rule.mitre_technique || "N/A"}</td>
                 <td className="font-semibold text-white">{rule.trigger_count ?? 0}</td>
-                <td className="whitespace-nowrap text-slate-300">{rule.last_triggered_at ? new Date(rule.last_triggered_at).toLocaleString() : "N/A"}</td>
-                <td className="whitespace-nowrap text-slate-300">{rule.updated_at ? new Date(rule.updated_at).toLocaleString() : "N/A"}</td>
+                <td className="whitespace-nowrap text-cyber-muted">{rule.last_triggered_at ? new Date(rule.last_triggered_at).toLocaleString() : "N/A"}</td>
+                <td className="whitespace-nowrap text-cyber-muted">{rule.updated_at ? new Date(rule.updated_at).toLocaleString() : "N/A"}</td>
                 <td><StatusBadge status={rule.is_active ? "open" : "false_positive"} /></td>
                 <td>
                   <button

@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.api.deps import require_roles
 from app.db.session import get_db
@@ -14,6 +14,7 @@ from app.models.alert_status_history import AlertStatusHistory
 from app.models.user import User
 from app.schemas.alerts import AlertActionResponse, AlertAssignRequest, AlertDetailResponse, AlertHistoryListResponse, AlertListResponse, AlertStatsSummaryResponse, AlertStatusUpdate, AnalystNoteActionResponse, AnalystNoteCreate
 from app.services.alert_service import AlertService
+from app.services.alert_report_service_simple import AlertReportServiceSimple
 
 router = APIRouter()
 
@@ -100,3 +101,102 @@ def assign(alert_id: int, payload: AlertAssignRequest, db: Annotated[Session, De
 @router.post("/{alert_id}/notes", response_model=AnalystNoteActionResponse, status_code=201)
 def add_note(alert_id: int, payload: AnalystNoteCreate, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst"))]):
     return AnalystNoteActionResponse(message="Analyst note added successfully.", note=AlertService.add_note(db=db, alert_id=alert_id, note_text=payload.note, current_user=current_user))
+
+
+@router.get("/{alert_id}/report/pdf")
+def generate_pdf_report(alert_id: int, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst"))]):
+    """Generate PDF incident report for an alert"""
+    from fastapi import HTTPException, status
+    
+    # Load alert with all necessary relationships
+    alert = db.execute(
+        select(Alert)
+        .options(
+            joinedload(Alert.assigned_to),
+            joinedload(Alert.detection_rule),
+            joinedload(Alert.normalized_log),
+            joinedload(Alert.risk_scores),
+        )
+        .where(Alert.id == alert_id)
+    ).unique().scalar_one_or_none()
+    
+    if not alert:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+    
+    try:
+        pdf_bytes = AlertReportServiceSimple.generate_incident_report(db=db, alert=alert, generated_by=current_user)
+        
+        filename = f"logshield-alert-{alert_id}-incident-report.pdf"
+        
+        if not pdf_bytes or not pdf_bytes.startswith(b"%PDF-"):
+            return Response(
+                content=b"PDF generation failed - invalid content",
+                status_code=500,
+                media_type="text/plain"
+            )
+        
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{filename}\"",
+                "Content-Length": str(len(pdf_bytes)),
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0"
+            }
+        )
+    except Exception as e:
+        # Return error response for debugging
+        return Response(
+            content=f"PDF generation error: {str(e)}".encode(),
+            status_code=500,
+            media_type="text/plain"
+        )
+
+
+@router.get("/{alert_id}/test-pdf")
+def test_pdf_endpoint(alert_id: int, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst"))]):
+    """Simple test endpoint for PDF generation"""
+    from fastapi import HTTPException, status
+    
+    # Load alert
+    alert = db.execute(
+        select(Alert)
+        .options(
+            joinedload(Alert.assigned_to),
+            joinedload(Alert.detection_rule),
+            joinedload(Alert.normalized_log),
+        )
+        .where(Alert.id == alert_id)
+    ).scalar_one_or_none()
+    
+    if not alert:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert not found")
+    
+    # Create a very simple test PDF
+    from io import BytesIO
+    from reportlab.pdfgen import canvas
+    
+    buffer = BytesIO()
+    p = canvas.Canvas(buffer)
+    p.setFont("Helvetica", 16)
+    p.drawString(100, 750, "LogShield Alert Report")
+    p.setFont("Helvetica", 12)
+    p.drawString(100, 700, f"Alert ID: {alert.id}")
+    p.drawString(100, 680, f"Title: {alert.title}")
+    p.drawString(100, 660, f"Severity: {alert.severity}")
+    p.drawString(100, 640, f"Status: {alert.status}")
+    p.save()
+    
+    pdf_bytes = buffer.getvalue()
+    buffer.close()
+    
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"test-alert-{alert_id}.pdf\"",
+            "Content-Length": str(len(pdf_bytes)),
+        }
+    )

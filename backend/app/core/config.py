@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     email_provider: str = Field(default="resend", alias="EMAIL_PROVIDER")
     resend_api_key: str = Field(default="", alias="RESEND_API_KEY")
     resend_from_email: str = Field(default="onboarding@resend.dev", alias="RESEND_FROM_EMAIL")
-    email_request_timeout_seconds: int = Field(default=15, alias="EMAIL_REQUEST_TIMEOUT_SECONDS")
+    email_request_timeout_seconds: int = Field(default=8, alias="EMAIL_REQUEST_TIMEOUT_SECONDS")
     smtp_host: str = Field(default="", alias="SMTP_HOST")
     smtp_port: int = Field(default=587, alias="SMTP_PORT")
     smtp_username: str = Field(default="", alias="SMTP_USERNAME")

@@ -18,13 +18,13 @@ export function NotesPanel({ notes, onAddNote }: { notes: any[]; onAddNote: (not
 
   return (
     <section className="soc-panel p-5">
-      <h2 className="text-lg font-bold text-white">Analyst Notes</h2>
+      <h2 className="text-lg font-bold text-cyber-text">Analyst Notes</h2>
       <div className="mt-4 space-y-3">
-        {notes.length === 0 ? <p className="text-sm text-slate-400">No analyst notes have been added yet.</p> : null}
+        {notes.length === 0 ? <p className="text-sm text-cyber-muted">No analyst notes have been added yet.</p> : null}
         {notes.map(n => (
-          <div key={n.id} className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
-            <p className="text-sm text-slate-400">{n.analyst?.full_name ?? "Unknown"} - {new Date(n.created_at).toLocaleString()}</p>
-            <p className="mt-2 text-slate-100">{n.note}</p>
+          <div key={n.id} className="rounded-2xl border border-cyan-400/10 bg-cyber-elevated/60 p-4">
+            <p className="text-sm text-cyber-muted">{n.analyst?.full_name ?? "Unknown"} - {new Date(n.created_at).toLocaleString()}</p>
+            <p className="mt-2 text-cyber-text">{n.note}</p>
           </div>
         ))}
       </div>

@@ -6,9 +6,9 @@ export function UserFormModal({ open, initial, onClose, onSubmit }: { open: bool
   if (!open) return null;
   async function submit(e: FormEvent) { e.preventDefault(); await onSubmit(values); }
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-cyber-bg/80 px-4 backdrop-blur-sm">
       <form onSubmit={submit} className="soc-panel-strong w-full max-w-xl space-y-4 p-6">
-        <h2 className="text-xl font-black text-white">{initial ? "Edit User" : "Create User"}</h2>
+        <h2 className="text-xl font-black text-cyber-text">{initial ? "Edit User" : "Create User"}</h2>
         <input value={values.full_name} onChange={e=>setValues({...values, full_name:e.target.value})} placeholder="Full name" className="soc-input w-full" />
         <input value={values.email} onChange={e=>setValues({...values, email:e.target.value})} placeholder="Email" className="soc-input w-full" />
         <input type="password" value={values.password} onChange={e=>setValues({...values, password:e.target.value})} placeholder="Password" className="soc-input w-full" />

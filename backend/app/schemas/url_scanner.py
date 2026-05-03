@@ -22,7 +22,23 @@ class URLScanRawReference(BaseModel):
     permalink: str = Field(..., description="Link to provider's detailed analysis")
 
 
+class URLScanEngineResult(BaseModel):
+    engine: str = Field(..., description="Security engine name")
+    category: str = Field(..., description="Provider category")
+    result: str = Field(..., description="Engine result")
+    method: str | None = Field(None, description="Detection method")
+
+
+class URLScanScoreBreakdown(BaseModel):
+    formula: str = Field(..., description="How LogShield calculated the displayed score")
+    explanation: str = Field(..., description="Human-readable score explanation")
+    engine_total: int = Field(default=0, description="Total engines represented by provider counts")
+    provider_error: str | None = Field(None, description="Provider error if fallback was used")
+    engine_results: list[URLScanEngineResult] = Field(default_factory=list, description="Engines that affected the verdict")
+
+
 class URLScanResponse(BaseModel):
+    id: int | None = Field(None, description="Scan result ID")
     url: str = Field(..., description="Original submitted URL")
     normalized_url: str = Field(..., description="Normalized URL for analysis")
     status: str = Field(..., description="Overall status: safe, suspicious, malicious, unknown")
@@ -32,6 +48,7 @@ class URLScanResponse(BaseModel):
     categories: list[str] = Field(default_factory=list, description="Categories from provider")
     last_analysis_date: datetime | None = Field(None, description="When provider last analyzed this URL")
     recommendation: str = Field(..., description="Safety recommendation")
+    score_breakdown: URLScanScoreBreakdown | None = Field(None, description="Explainable score breakdown")
     raw_reference: URLScanRawReference = Field(..., description="Provider reference information")
     scanned_at: datetime = Field(..., description="When LogShield scanned this URL")
     scanned_by: str = Field(..., description="User who requested the scan")

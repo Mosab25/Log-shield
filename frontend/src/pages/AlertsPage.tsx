@@ -3,10 +3,12 @@ import { Link } from "react-router-dom";
 import { AlertTriangle, ShieldAlert } from "lucide-react";
 import { apiClient } from "../api/client";
 import { Pagination } from "../components/Pagination";
+import { InfoHint, RecommendedActions } from "../components/Guidance";
 import { RiskBadge } from "../components/RiskBadge";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { StatusBadge } from "../components/StatusBadge";
 import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
+import { deriveAttackSignalFromText } from "../securitySignals";
 
 const ATTACK_TYPE_COLORS: Record<string, string> = {
   brute_force: "bg-red-500/20 text-red-300 border-red-500/30",
@@ -28,7 +30,7 @@ const ATTACK_TYPE_LABELS: Record<string, string> = {
 
 function AttackTypeBadge({ type }: { type: string | null }) {
   if (!type) return null;
-  const color = ATTACK_TYPE_COLORS[type] ?? "bg-slate-500/20 text-slate-300 border-slate-500/30";
+  const color = ATTACK_TYPE_COLORS[type] ?? "bg-cyber-elevated/40 text-cyber-muted border-cyber-muted/25";
   const label = ATTACK_TYPE_LABELS[type] ?? type.replace(/_/g, " ");
   return <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-bold ${color}`}><ShieldAlert className="h-3 w-3" />{label}</span>;
 }
@@ -80,6 +82,20 @@ export function AlertsPage() {
     <div className="space-y-6">
       <PageHeader eyebrow="Alerts" title="Alert Management" description="Prioritize, inspect, and update detection alerts with severity, risk, and status context." icon={AlertTriangle} />
 
+      <InfoHint title="How to triage alerts">
+        Alerts are detections generated from logs and rules. Start with severity and risk, then confirm the evidence before linking the alert to an incident or changing status.
+      </InfoHint>
+
+      <RecommendedActions
+        title="Alert triage path"
+        actions={[
+          "Open critical and high-risk alerts first.",
+          "Check the source IP, user, and related logs.",
+          "Search any IOC or CVE mentioned in the alert.",
+          "Create or link an incident when alerts are related.",
+        ]}
+      />
+
       <section className="soc-panel p-5">
         <div className="grid gap-3 md:grid-cols-3">
           <select value={severity} onChange={e => { setSeverity(e.target.value); setPage(1); }} className="soc-input">
@@ -104,12 +120,23 @@ export function AlertsPage() {
               <table className="soc-table">
                 <thead><tr><th>Alert</th><th>Severity</th><th>Risk</th><th>Status</th><th>Open</th></tr></thead>
                 <tbody>
-                  {alerts.map(a => (
-                    <tr key={a.id}>
+                  {alerts.map(a => {
+                    const fallbackAttack = deriveAttackSignalFromText(a.title, a.description, a.source_ip, a.username, a.mitre_technique);
+                    const attackTypeForView = a.attack_type || fallbackAttack.attackType;
+                    const attackLabelFallback = fallbackAttack.attackLabel;
+                    return (
+                      <tr key={a.id}>
                       <td>
-                        <div className="mb-2 flex flex-wrap items-center gap-2"><AttackTypeBadge type={a.attack_type} /></div>
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <AttackTypeBadge type={attackTypeForView} />
+                          {!a.attack_type && attackLabelFallback ? (
+                            <span className="rounded-full border border-cyan-300/30 bg-cyan-500/10 px-3 py-1 text-[11px] font-bold text-cyan-200">
+                              Auto-detected: {attackLabelFallback}
+                            </span>
+                          ) : null}
+                        </div>
                         <p className="font-bold text-white">{a.title}</p>
-                        <p className="text-xs text-slate-500">{a.source_ip ?? "N/A"} - {a.username ?? "unknown"}</p>
+                        <p className="text-xs text-cyber-muted/60">{a.source_ip ?? "N/A"} - {a.username ?? "unknown"}</p>
                         {a.mitre_tactic && <p className="mt-1 text-xs text-cyan-300/75">MITRE: {a.mitre_tactic}{a.mitre_technique ? ` -> ${a.mitre_technique}` : ""}</p>}
                       </td>
                       <td><SeverityBadge severity={a.severity} /></td>
@@ -123,7 +150,8 @@ export function AlertsPage() {
                       </td>
                       <td><Link className="font-semibold text-cyan-200 hover:text-white" to={`/alerts/${a.id}`}>Open</Link></td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

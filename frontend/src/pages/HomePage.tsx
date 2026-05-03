@@ -169,13 +169,13 @@ const homeContent = {
 function LanguageToggle({ currentLang, onLanguageChange }: { currentLang: 'ar' | 'en'; onLanguageChange: (lang: 'ar' | 'en') => void }) {
   return (
     <div className="flex items-center justify-center mb-8">
-      <div className="relative inline-flex items-center rounded-full border border-cyan-300/30 bg-cyan-300/10 p-1 shadow-[0_0_26px_rgba(34,211,238,0.16)]">
+      <div className="relative inline-flex items-center rounded-full border border-cyber-cyan/20 bg-cyber-cyan/[0.06] p-1 shadow-[0_0_26px_rgba(34,211,238,0.12)]">
         <button
           onClick={() => onLanguageChange('ar')}
           className={`relative z-10 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-300 ${
             currentLang === 'ar'
-              ? 'bg-gradient-to-r from-cyan-400 to-blue-500 text-white shadow-lg shadow-cyan-500/25'
-              : 'text-slate-400 hover:text-slate-200'
+              ? 'bg-gradient-to-r from-cyber-cyan to-blue-500 text-cyber-bg shadow-lg shadow-cyan-500/25'
+              : 'text-cyber-muted hover:text-cyber-text'
           }`}
         >
           العربية
@@ -184,8 +184,8 @@ function LanguageToggle({ currentLang, onLanguageChange }: { currentLang: 'ar' |
           onClick={() => onLanguageChange('en')}
           className={`relative z-10 rounded-full px-4 py-2 text-sm font-semibold transition-all duration-300 ${
             currentLang === 'en'
-              ? 'bg-gradient-to-r from-cyan-400 to-blue-500 text-white shadow-lg shadow-cyan-500/25'
-              : 'text-slate-400 hover:text-slate-200'
+              ? 'bg-gradient-to-r from-cyber-cyan to-blue-500 text-cyber-bg shadow-lg shadow-cyan-500/25'
+              : 'text-cyber-muted hover:text-cyber-text'
           }`}
         >
           English
@@ -220,24 +220,24 @@ export function HomePage() {
 
   if (!isLoaded) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#020817] text-slate-100">
+      <main className="flex min-h-screen items-center justify-center bg-cyber-bg text-cyber-text">
         <div className="text-center">
-          <div className="mx-auto h-16 w-16 animate-spin rounded-full border-4 border-cyan-400/20 border-t-cyan-400"></div>
-          <p className="mt-4 text-slate-400">Loading...</p>
+          <div className="mx-auto h-16 w-16 animate-spin rounded-full border-4 border-cyber-cyan/20 border-t-cyber-cyan"></div>
+          <p className="mt-4 text-cyber-muted">Loading...</p>
         </div>
       </main>
     );
   }
 
   return (
-    <main dir={isRTL ? 'rtl' : 'ltr'} className={`min-h-screen bg-[#020817] text-slate-100 relative overflow-hidden ${isRTL ? 'rtl' : 'ltr'}`}>
+    <main dir={isRTL ? 'rtl' : 'ltr'} className={`min-h-screen bg-cyber-bg text-cyber-text relative overflow-hidden ${isRTL ? 'rtl' : 'ltr'}`}>
       {/* Background effects - Fixed to cover full viewport */}
       <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(34,211,238,0.18),transparent_34rem),radial-gradient(circle_at_18%_78%,rgba(56,189,248,0.12),transparent_26rem),linear-gradient(135deg,#020817_0%,#061227_48%,#020817_100%)]" />
-        <div className="absolute inset-0 opacity-[0.18] [background-image:linear-gradient(rgba(125,211,252,.22)_1px,transparent_1px),linear-gradient(90deg,rgba(125,211,252,.22)_1px,transparent_1px)] [background-size:56px_56px]" />
-        <div className="absolute left-1/2 top-0 h-px w-[84rem] -translate-x-1/2 bg-gradient-to-r from-transparent via-cyan-200/50 to-transparent" />
-        <div className="absolute -right-48 top-20 h-[34rem] w-[34rem] rounded-full border border-cyan-300/10" />
-        <div className="absolute -right-32 top-36 h-[22rem] w-[22rem] rounded-full border border-sky-400/10" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_18%,rgba(34,211,238,0.14),transparent_34rem),radial-gradient(circle_at_18%_78%,rgba(139,92,246,0.08),transparent_26rem),linear-gradient(135deg,#060B13_0%,#0B1220_48%,#060B13_100%)]" />
+        <div className="absolute inset-0 opacity-[0.18] [background-image:linear-gradient(rgba(34,211,238,.18)_1px,transparent_1px),linear-gradient(90deg,rgba(34,211,238,.18)_1px,transparent_1px)] [background-size:56px_56px]" />
+        <div className="absolute left-1/2 top-0 h-px w-[84rem] -translate-x-1/2 bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
+        <div className="absolute -right-48 top-20 h-[34rem] w-[34rem] rounded-full border border-cyan-400/10" />
+        <div className="absolute -right-32 top-36 h-[22rem] w-[22rem] rounded-full border border-violet-400/10" />
       </div>
 
       <div className="relative z-10 mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
@@ -249,10 +249,10 @@ export function HomePage() {
         {/* Hero Section */}
         <section className={`text-center ${isRTL ? 'lg:text-right' : 'lg:text-left'} animate-slide-up`}>
           <div className="mx-auto max-w-4xl">
-            <h1 className="text-4xl font-black leading-tight text-white sm:text-5xl lg:text-6xl">
+            <h1 className="text-4xl font-black leading-tight text-cyber-text sm:text-5xl lg:text-6xl">
               {content.hero.title}
             </h1>
-            <p className={`mt-6 text-lg leading-8 text-slate-300 sm:text-xl ${isRTL ? 'lg:ml-auto' : 'lg:mr-auto'} animate-fade-in-delay`}>
+            <p className={`mt-6 text-lg leading-8 text-cyber-muted sm:text-xl ${isRTL ? 'lg:ml-auto' : 'lg:mr-auto'} animate-fade-in-delay`}>
               {content.hero.subtitle}
             </p>
           </div>
@@ -269,12 +269,12 @@ export function HomePage() {
                   className={`soc-panel p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_0_40px_rgba(34,211,238,0.15)] ${isRTL ? 'text-right' : 'text-left'} ${index < 6 ? `animate-slide-up-delay-${index}` : ''}`}
                 >
                   <div className={`flex items-center gap-4 ${isRTL ? 'flex-row-reverse' : ''}`}>
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-cyan-300/30 bg-cyan-300/10">
-                      <Icon className="h-6 w-6 text-cyan-400" />
+                    <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-cyber-cyan/20 bg-cyber-cyan/10">
+                      <Icon className="h-6 w-6 text-cyan-300" />
                     </div>
-                    <h3 className="text-lg font-semibold text-white">{feature.title}</h3>
+                    <h3 className="text-lg font-semibold text-cyber-text">{feature.title}</h3>
                   </div>
-                  <p className={`mt-4 text-slate-300 ${isRTL ? 'lg:mr-16' : 'lg:ml-16'}`}>
+                  <p className={`mt-4 text-cyber-muted ${isRTL ? 'lg:mr-16' : 'lg:ml-16'}`}>
                     {feature.description}
                   </p>
                 </div>
@@ -286,10 +286,10 @@ export function HomePage() {
         {/* Educational Section */}
         <section className="mt-20 animate-slide-up-delay-3">
           <div className="soc-panel p-8">
-            <h2 className={`text-2xl font-bold text-white sm:text-3xl ${isRTL ? 'text-right' : 'text-left'}`}>
+            <h2 className={`text-2xl font-bold text-cyber-text sm:text-3xl ${isRTL ? 'text-right' : 'text-left'}`}>
               {content.educational.title}
             </h2>
-            <p className={`mt-4 text-lg leading-7 text-slate-300 ${isRTL ? 'text-right' : 'text-left'}`}>
+            <p className={`mt-4 text-lg leading-7 text-cyber-muted ${isRTL ? 'text-right' : 'text-left'}`}>
               {content.educational.description}
             </p>
           </div>
@@ -298,10 +298,10 @@ export function HomePage() {
         {/* Simulation Section */}
         <section className="mt-16 animate-slide-up-delay-4">
           <div className="soc-panel p-8">
-            <h2 className={`text-2xl font-bold text-white sm:text-3xl ${isRTL ? 'text-right' : 'text-left'}`}>
+            <h2 className={`text-2xl font-bold text-cyber-text sm:text-3xl ${isRTL ? 'text-right' : 'text-left'}`}>
               {content.simulation.title}
             </h2>
-            <p className={`mt-4 text-lg leading-7 text-slate-300 ${isRTL ? 'text-right' : 'text-left'}`}>
+            <p className={`mt-4 text-lg leading-7 text-cyber-muted ${isRTL ? 'text-right' : 'text-left'}`}>
               {content.simulation.description}
             </p>
           </div>
@@ -310,16 +310,16 @@ export function HomePage() {
         {/* Workflow Section */}
         <section className="mt-20 animate-slide-up-delay-5">
           <div className="soc-panel p-8">
-            <h2 className={`text-2xl font-bold text-white sm:text-3xl ${isRTL ? 'text-right' : 'text-left'}`}>
+            <h2 className={`text-2xl font-bold text-cyber-text sm:text-3xl ${isRTL ? 'text-right' : 'text-left'}`}>
               {content.workflow.title}
             </h2>
             <div className={`mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 ${isRTL ? 'text-right' : 'text-left'}`}>
               {content.workflow.steps.map((step, index) => (
                 <div key={index} className="flex items-start gap-3">
-                  <div className="mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-cyan-400/20 text-sm font-semibold text-cyan-400">
+                  <div className="mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-cyber-cyan/20 text-sm font-semibold text-cyan-300">
                     {index + 1}
                   </div>
-                  <p className="text-slate-300">{step}</p>
+                  <p className="text-cyber-muted">{step}</p>
                 </div>
               ))}
             </div>
@@ -329,16 +329,16 @@ export function HomePage() {
         {/* CTA Section */}
         <section className="mt-20">
           <div className="soc-panel p-8">
-            <h2 className={`text-2xl font-bold text-white sm:text-3xl ${isRTL ? 'text-right' : 'text-left'}`}>
+            <h2 className={`text-2xl font-bold text-cyber-text sm:text-3xl ${isRTL ? 'text-right' : 'text-left'}`}>
               {content.cta.title}
             </h2>
-            <p className={`mt-4 text-lg leading-7 text-slate-300 ${isRTL ? 'text-right' : 'text-left'}`}>
+            <p className={`mt-4 text-lg leading-7 text-cyber-muted ${isRTL ? 'text-right' : 'text-left'}`}>
               {content.cta.description}
             </p>
             <div className={`mt-8 flex flex-wrap gap-4 justify-center ${isRTL ? 'lg:justify-end' : 'lg:justify-start'}`}>
               <Link
                 to="/dashboard"
-                className="soc-button flex items-center gap-2 px-6 py-3 text-sm font-semibold"
+                className="soc-button-primary flex items-center gap-2 px-6 py-3 text-sm font-semibold"
               >
                 <BarChart3 className="h-4 w-4" />
                 {content.cta.buttons.dashboard}

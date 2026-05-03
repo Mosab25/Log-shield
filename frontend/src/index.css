@@ -5,14 +5,30 @@
 :root {
   color-scheme: dark;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #020617;
+  background: #060B13;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --soc-panel: rgba(15, 23, 42, 0.72);
-  --soc-panel-strong: rgba(2, 6, 23, 0.86);
-  --soc-border: rgba(148, 163, 184, 0.16);
-  --soc-border-strong: rgba(125, 211, 252, 0.24);
-  --soc-cyan: #67e8f9;
+
+  /* Cyber theme tokens */
+  --cyber-bg: #060B13;
+  --cyber-surface: #0B1220;
+  --cyber-elevated: #111827;
+  --cyber-cyan: #22D3EE;
+  --cyber-violet: #8B5CF6;
+  --cyber-green: #22C55E;
+  --cyber-amber: #F59E0B;
+  --cyber-red: #EF4444;
+  --cyber-text: #E5F4FF;
+  --cyber-muted: #94A3B8;
+  --cyber-border-cyan: rgba(34, 211, 238, 0.18);
+  --cyber-border-violet: rgba(139, 92, 246, 0.18);
+
+  /* Legacy compat tokens */
+  --soc-panel: rgba(11, 18, 32, 0.85);
+  --soc-panel-strong: rgba(6, 11, 19, 0.92);
+  --soc-border: rgba(34, 211, 238, 0.18);
+  --soc-border-strong: rgba(34, 211, 238, 0.35);
+  --soc-cyan: #22D3EE;
   --soc-blue: #38bdf8;
 }
 
@@ -25,10 +41,10 @@ body {
   min-width: 320px;
   min-height: 100vh;
   background:
-    radial-gradient(circle at 16% -8%, rgba(34, 211, 238, 0.2), transparent 30rem),
-    radial-gradient(circle at 86% 8%, rgba(59, 130, 246, 0.14), transparent 28rem),
-    linear-gradient(135deg, #020617 0%, #07111f 42%, #020617 100%);
-  color: #e5e7eb;
+    radial-gradient(circle at 16% -8%, rgba(34, 211, 238, 0.12), transparent 30rem),
+    radial-gradient(circle at 86% 8%, rgba(139, 92, 246, 0.08), transparent 28rem),
+    linear-gradient(135deg, #060B13 0%, #0B1220 42%, #060B13 100%);
+  color: #E5F4FF;
 }
 
 body::before {
@@ -38,8 +54,8 @@ body::before {
   z-index: -1;
   content: "";
   background-image:
-    linear-gradient(rgba(125, 211, 252, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(125, 211, 252, 0.05) 1px, transparent 1px);
+    linear-gradient(rgba(34, 211, 238, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(34, 211, 238, 0.04) 1px, transparent 1px);
   background-size: 48px 48px;
   mask-image: linear-gradient(to bottom, black, transparent 72%);
 }
@@ -64,7 +80,7 @@ a:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
-  box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.26);
+  box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.3), 0 0 0 6px rgba(34, 211, 238, 0.1);
 }
 
 button {
@@ -86,56 +102,59 @@ a {
 }
 
 ::-webkit-scrollbar-track {
-  background: #020617;
+  background: #060B13;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: linear-gradient(#1e293b, #0e7490);
+  background: linear-gradient(#1e293b, #22D3EE);
   border-radius: 999px;
 }
 
 @layer components {
   .soc-page-header {
-    @apply flex flex-col gap-5 rounded-[1.6rem] border border-cyan-200/10 bg-slate-950/45 p-5 shadow-2xl shadow-black/25 backdrop-blur md:flex-row md:items-start md:justify-between md:p-6;
+    @apply flex flex-col gap-4 rounded-[1.6rem] border border-cyan-400/15 bg-cyber-surface/80 p-4 shadow-2xl shadow-black/25 backdrop-blur md:flex-row md:items-start md:justify-between md:p-5;
     background:
-      linear-gradient(135deg, rgba(14, 165, 233, 0.12), transparent 42%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018));
+      linear-gradient(135deg, rgba(34, 211, 238, 0.06), rgba(139, 92, 246, 0.04)),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
   }
 
   .soc-eyebrow {
-    @apply inline-flex items-center gap-2 text-xs font-bold uppercase text-cyan-200;
+    @apply inline-flex items-center gap-2 text-xs font-bold uppercase text-cyan-300;
     letter-spacing: 0.22em;
   }
 
   .soc-panel {
-    @apply rounded-[1.35rem] border border-slate-700/60 bg-slate-900/70 shadow-xl shadow-black/20 backdrop-blur;
+    @apply rounded-[1.35rem] border border-cyber-border-cyan bg-cyber-surface/85 shadow-xl shadow-black/20 backdrop-blur;
     background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.02)),
-      rgba(15, 23, 42, 0.72);
+      linear-gradient(135deg, rgba(34, 211, 238, 0.02), rgba(139, 92, 246, 0.01)),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.01)),
+      rgba(11, 18, 32, 0.85);
   }
 
   .soc-panel-strong {
-    @apply rounded-[1.35rem] border border-cyan-200/10 bg-slate-950/80 shadow-2xl shadow-black/30 backdrop-blur-xl;
+    @apply rounded-[1.35rem] border border-cyber-border-cyan bg-cyber-bg/90 shadow-2xl shadow-black/30 backdrop-blur-xl;
   }
 
   .soc-button-primary {
-    @apply inline-flex items-center justify-center gap-2 rounded-2xl bg-cyan-300 px-4 py-2.5 text-sm font-black text-slate-950 shadow-lg shadow-cyan-950/30 transition hover:-translate-y-0.5 hover:bg-cyan-200 disabled:translate-y-0 disabled:bg-slate-600 disabled:text-slate-300 disabled:shadow-none;
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyber-cyan to-cyber-violet px-4 py-2.5 text-sm font-black text-cyber-bg shadow-lg shadow-cyan-950/30 transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-cyan-950/40 disabled:translate-y-0 disabled:from-slate-600 disabled:to-slate-700 disabled:text-slate-300 disabled:shadow-none;
   }
 
   .soc-button-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-700/80 bg-slate-950/70 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:border-cyan-300/40 hover:bg-cyan-300/10 hover:text-cyan-100 disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-2xl border border-cyber-border-cyan bg-cyber-surface/70 px-4 py-2.5 text-sm font-semibold text-cyber-text transition hover:border-cyber-violet/30 hover:bg-cyber-elevated hover:text-cyber-cyan disabled:opacity-50;
   }
 
   .soc-input {
-    @apply rounded-2xl border border-slate-700/80 bg-slate-950/75 px-4 py-2.5 text-sm text-slate-100 shadow-inner shadow-black/20 transition placeholder:text-slate-600 focus:border-cyan-300/60;
+    @apply rounded-2xl border border-cyber-border-cyan bg-cyber-surface/80 px-4 py-2.5 text-sm text-cyber-text shadow-inner shadow-black/20 transition placeholder:text-cyber-muted focus:border-cyber-cyan/60 focus:shadow-lg focus:ring-2 focus:ring-cyber-cyan/20;
   }
 
   .soc-table {
-    @apply min-w-full divide-y divide-slate-800/80;
+    @apply min-w-full divide-y divide-cyber-border-cyan;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .soc-table th {
-    @apply whitespace-nowrap px-5 py-3 text-left text-xs font-bold uppercase text-slate-400;
+    @apply whitespace-nowrap px-5 py-3 text-left text-xs font-bold uppercase text-cyber-muted;
     letter-spacing: 0.08em;
   }
 
@@ -144,20 +163,20 @@ a {
   }
 
   .soc-table tbody {
-    @apply divide-y divide-slate-800/80;
+    @apply divide-y divide-cyber-border-cyan;
   }
 
   .soc-table tbody tr {
-    @apply transition hover:bg-cyan-300/[0.035];
+    @apply transition hover:bg-cyber-surface/10;
   }
 
   .soc-empty {
-    @apply rounded-[1.35rem] border border-dashed border-slate-700/80 bg-slate-950/35 p-8 text-center;
+    @apply rounded-[1.35rem] border border-cyber-border-cyan bg-cyber-surface/40 p-8 text-center;
   }
 
   .soc-skeleton {
-    @apply animate-pulse rounded-2xl border border-slate-800/80 bg-slate-800/70;
-    background: linear-gradient(90deg, rgba(30, 41, 59, 0.8), rgba(51, 65, 85, 0.85), rgba(30, 41, 59, 0.8));
+    @apply animate-pulse rounded-2xl border border-cyber-border-cyan bg-cyber-elevated/70;
+    background: linear-gradient(90deg, rgba(17, 24, 39, 0.8), rgba(30, 41, 59, 0.85), rgba(17, 24, 39, 0.8));
     background-size: 220% 100%;
     animation: soc-shimmer 1.35s ease-in-out infinite;
   }
@@ -197,10 +216,10 @@ a {
 
 @keyframes glow {
   0%, 100% {
-    text-shadow: 0 0 15px rgba(103, 232, 249, 0.3);
+    text-shadow: 0 0 15px rgba(34, 211, 238, 0.25);
   }
   50% {
-    text-shadow: 0 0 20px rgba(103, 232, 249, 0.5);
+    text-shadow: 0 0 20px rgba(34, 211, 238, 0.4);
   }
 }
 

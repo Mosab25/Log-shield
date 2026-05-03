@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Activity, AlertTriangle, Ban, Database, Lock, RefreshCw, Shield, ShieldCheck, Users, UserCheck, Clock, TrendingUp, AlertCircle, CheckCircle, Info, XCircle } from "lucide-react";
 import { apiClient } from "../api/client";
+import { InfoHint, RecommendedActions } from "../components/Guidance";
 import { EmptyState, ErrorState, PageHeader, SectionHeader, SkeletonBlock } from "../components/UI";
 
 interface SecurityControl {
@@ -186,7 +187,7 @@ export function SecurityCenterPage() {
       <PageHeader
         eyebrow="Security"
         title="Security Center"
-        description="Centralized visibility into platform security controls, authentication protection, IP blocking, and sensitive administrative activity."
+        description="Understand platform security controls, authentication protection, IP blocking, audit logging, and administrative activity."
         actions={
           <button
             onClick={handleRefresh}
@@ -197,6 +198,20 @@ export function SecurityCenterPage() {
             Refresh
           </button>
         }
+      />
+
+      <InfoHint title="What each control means">
+        2FA protects admin login, IP Blocking denies known risky sources, Root Admin Protection prevents accidental lockout, Audit Logging preserves evidence, and Rate Limiting slows brute-force attempts.
+      </InfoHint>
+
+      <RecommendedActions
+        title="Security posture recommendations"
+        actions={[
+          "Keep admin 2FA enabled and email delivery configured.",
+          "Review active blocked IPs before they expire.",
+          "Investigate sensitive actions in audit logs.",
+          "Confirm critical alerts and open incidents are owned.",
+        ]}
       />
 
       {/* Security Controls */}

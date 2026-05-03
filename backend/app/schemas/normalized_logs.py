@@ -38,3 +38,32 @@ class NormalizedLogListResponse(BaseModel):
     skip: int
     limit: int
     items: list[NormalizedLogResponse]
+
+
+class SecurityEventLogResponse(BaseModel):
+    id: int
+    timestamp: datetime | None
+    source: str | None = None
+    event_type: str | None = None
+    event_label: str | None = None
+    category: str | None = None
+    severity: str | None = None
+    username: str | None = None
+    ip_address: str | None = None
+    user_agent: str | None = None
+    method: str | None = None
+    endpoint: str | None = None
+    status: str | None = None
+    status_code: int | None = None
+    message: str
+    attack_type: str | None = None
+    mitre_technique: str | None = None
+    risk_score: int | None = None
+    icon: str | None = None
+
+
+class SecurityEventLogListResponse(BaseModel):
+    total: int
+    skip: int
+    limit: int
+    items: list[SecurityEventLogResponse]

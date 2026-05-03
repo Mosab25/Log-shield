@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.models.alert_status_history import AlertStatusHistory
     from app.models.analyst_note import AnalystNote
     from app.models.audit_log import AuditLog
+    from app.models.quiz import Quiz, QuizAttempt
     from app.models.refresh_token import RefreshToken
     from app.models.role import Role
     from app.models.threat_entry import ThreatEntry
@@ -41,3 +42,6 @@ class User(Base):
     submitted_threats: Mapped[list["ThreatEntry"]] = relationship("ThreatEntry", back_populates="submitted_by", foreign_keys="ThreatEntry.submitted_by_id")
     reviewed_threats: Mapped[list["ThreatEntry"]] = relationship("ThreatEntry", back_populates="reviewed_by", foreign_keys="ThreatEntry.reviewed_by_id")
     threat_reviews: Mapped[list["ThreatReview"]] = relationship("ThreatReview", back_populates="reviewer")
+    # Quiz relationships - will be added after Quiz model is properly imported
+    # created_quizzes: Mapped[list["Quiz"]] = relationship("Quiz", back_populates="created_by")
+    # quiz_attempts: Mapped[list["QuizAttempt"]] = relationship("QuizAttempt", back_populates="user", cascade="all, delete-orphan")

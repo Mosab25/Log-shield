@@ -52,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   function completeSession(response: LoginSuccessResponse) {
     tokenStorage.setTokens(response.access_token, response.refresh_token);
+    tokenStorage.setUser(response.user);
     setUser(response.user);
   }
 
@@ -61,8 +62,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(false);
       return;
     }
+
+    const cachedUser = tokenStorage.getUser<AuthUser>();
+    if (cachedUser) {
+      setUser(cachedUser);
+      setIsLoading(false);
+    }
+
     try {
-      setUser(await apiClient.get<AuthUser>("/auth/me"));
+      const freshUser = await apiClient.get<AuthUser>("/auth/me");
+      tokenStorage.setUser(freshUser);
+      setUser(freshUser);
     } catch {
       tokenStorage.clearTokens();
       setUser(null);

@@ -1,9 +1,10 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Briefcase, Plus, RefreshCw, Search, ShieldAlert } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { apiClient } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { InfoHint, RecommendedActions } from "../components/Guidance";
 import { Pagination } from "../components/Pagination";
 import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
 
@@ -66,7 +67,7 @@ function statusClass(status: string): string {
     case "resolved":
       return "border-emerald-400/35 bg-emerald-500/12 text-emerald-200";
     case "closed":
-      return "border-slate-400/35 bg-slate-500/12 text-slate-200";
+      return "border-cyber-muted/25 bg-cyber-muted/10 text-cyber-muted";
     case "false_positive":
       return "border-fuchsia-400/35 bg-fuchsia-500/12 text-fuchsia-200";
     default:
@@ -78,6 +79,8 @@ export function IncidentsPage() {
   const { role } = useAuth();
   const canManage = role === "admin" || role === "analyst";
   const pageSize = 10;
+  const [searchParams, setSearchParams] = useSearchParams();
+  const alertIdFilter = searchParams.get("alert_id")?.trim() || "";
 
   const [items, setItems] = useState<IncidentListItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -108,6 +111,7 @@ export function IncidentsPage() {
       if (severity) params.set("severity", severity);
       if (ownerUserId.trim()) params.set("owner_user_id", ownerUserId.trim());
       if (search.trim()) params.set("q", search.trim());
+      if (alertIdFilter) params.set("alert_id", alertIdFilter);
 
       const response = await apiClient.get<IncidentListResponse>(`/incidents?${params.toString()}`);
       setItems(Array.isArray(response.items) ? response.items : []);
@@ -123,7 +127,7 @@ export function IncidentsPage() {
 
   useEffect(() => {
     void load();
-  }, [page, status, severity, ownerUserId]);
+  }, [page, status, severity, ownerUserId, alertIdFilter]);
 
   function applySearch(event: FormEvent) {
     event.preventDefault();
@@ -168,7 +172,7 @@ export function IncidentsPage() {
       <PageHeader
         eyebrow="Incident Cases"
         title="Incidents"
-        description="Group multiple alerts into managed SOC investigations with timeline and evidence."
+        description="Group multiple alerts and evidence into one investigation case, assign ownership, and track the response lifecycle."
         icon={Briefcase}
         actions={
           <button type="button" onClick={() => void load()} className="soc-button-ghost">
@@ -177,6 +181,37 @@ export function IncidentsPage() {
           </button>
         }
       />
+
+      <InfoHint title="How incident cases work">
+        Incidents group related alerts, notes, evidence, and timeline events into one investigation. Follow the lifecycle from Open to Investigating, document containment in notes/evidence, then move to Resolved or Closed.
+      </InfoHint>
+
+      <RecommendedActions
+        title="Incident workflow"
+        actions={[
+          "Create a case when multiple alerts share the same user, IP, host, or attack pattern.",
+          "Assign an owner before deep investigation starts.",
+          "Link every important alert and preserve evidence.",
+          "Use notes and timeline events to document decisions.",
+        ]}
+      />
+
+      {alertIdFilter ? (
+        <div className="rounded-2xl border border-cyan-300/25 bg-cyan-400/10 px-4 py-3 text-sm text-cyan-100">
+          Filtered by linked alert ID <span className="font-black">#{alertIdFilter}</span>.
+          <button
+            type="button"
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete("alert_id");
+              setSearchParams(next);
+            }}
+            className="ml-3 font-semibold text-cyan-200 hover:text-white"
+          >
+            Clear
+          </button>
+        </div>
+      ) : null}
 
       {canManage ? (
         <section className="soc-panel p-5">
@@ -291,7 +326,7 @@ export function IncidentsPage() {
                     <tr key={item.id}>
                       <td>
                         <p className="font-semibold text-white">{item.title}</p>
-                        <p className="mt-1 text-xs text-slate-500">Created by {item.created_by?.full_name ?? "Unknown"}</p>
+                        <p className="mt-1 text-xs text-cyber-muted/60">Created by {item.created_by?.full_name ?? "Unknown"}</p>
                       </td>
                       <td>
                         <span className={`rounded-full border px-3 py-1 text-xs font-bold uppercase ${severityClass(item.severity)}`}>
@@ -304,8 +339,8 @@ export function IncidentsPage() {
                         </span>
                       </td>
                       <td>
-                        <p className="text-sm font-semibold text-slate-200">{item.owner?.full_name ?? "Unassigned"}</p>
-                        <p className="text-xs text-slate-500">{item.owner?.email ?? "-"}</p>
+                        <p className="text-sm font-semibold text-cyber-text">{item.owner?.full_name ?? "Unassigned"}</p>
+                        <p className="text-xs text-cyber-muted/60">{item.owner?.email ?? "-"}</p>
                       </td>
                       <td>{item.linked_alerts_count}</td>
                       <td>{formatDate(item.updated_at)}</td>

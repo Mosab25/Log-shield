@@ -43,7 +43,7 @@ function EntryStatusBadge({ status }: { status: string }) {
   return <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${color}`}>{label}</span>;
 }
 
-export function ThreatsPage() {
+export function ThreatsPage({ embedded = false }: { embedded?: boolean }) {
   const [threats, setThreats] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -81,13 +81,23 @@ export function ThreatsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Threat Intelligence"
-        title="Knowledge Base"
-        description="Curate vulnerabilities, indicators, MITRE mapping, CVEs, and approved threat references."
-        icon={ShieldAlert}
-        actions={<button onClick={() => setShowCreate(true)} className="soc-button-primary"><Plus className="h-5 w-5" />New Entry</button>}
-      />
+      {!embedded ? (
+        <PageHeader
+          eyebrow="Threat Intelligence"
+          title="Knowledge Base"
+          description="Curate vulnerabilities, indicators, MITRE mapping, CVEs, and approved threat references."
+          icon={ShieldAlert}
+          actions={<button onClick={() => setShowCreate(true)} className="soc-button-primary"><Plus className="h-5 w-5" />New Entry</button>}
+        />
+      ) : (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase text-cyan-200">Knowledge Base</p>
+            <h2 className="text-xl font-black text-white">Curated Threat Entries</h2>
+          </div>
+          <button onClick={() => setShowCreate(true)} className="soc-button-primary"><Plus className="h-5 w-5" />New Entry</button>
+        </div>
+      )}
 
       <section className="soc-panel p-5">
         <div className="grid gap-3 xl:grid-cols-[1fr_12rem_12rem_12rem]">

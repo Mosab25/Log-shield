@@ -12,10 +12,12 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.url_scanner import (
     URLScanErrorResponse,
+    URLScanEngineResult,
     URLScanHistoryItem,
     URLScanHistoryResponse,
     URLScanRequest,
     URLScanResponse,
+    URLScanScoreBreakdown,
     URLScanStatistics,
 )
 from app.services.url_scanner_service import URLScannerService
@@ -40,6 +42,105 @@ def _parse_categories(raw_categories: str | None) -> list[str]:
     except Exception:
         pass
     return []
+
+
+def _parse_raw_summary(raw_summary: str | None) -> dict:
+    if not raw_summary:
+        return {}
+    try:
+        parsed = json.loads(raw_summary)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        pass
+    # Backward compatibility with older rows stored using Python repr().
+    try:
+        parsed = ast.literal_eval(raw_summary)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
+def _build_score_breakdown(result) -> URLScanScoreBreakdown:
+    raw_summary = _parse_raw_summary(result.raw_summary)
+    provider_error = raw_summary.get("error") if isinstance(raw_summary.get("error"), str) else None
+    engine_results = []
+    for item in raw_summary.get("engine_results", []):
+        if isinstance(item, dict):
+            engine_results.append(
+                URLScanEngineResult(
+                    engine=str(item.get("engine", "Unknown engine")),
+                    category=str(item.get("category", "unknown")),
+                    result=str(item.get("result", item.get("category", "unknown"))),
+                    method=str(item.get("method")) if item.get("method") else None,
+                )
+            )
+
+    engine_total = (
+        result.malicious_count
+        + result.suspicious_count
+        + result.harmless_count
+        + result.undetected_count
+    )
+
+    if result.status == "malicious":
+        formula = "min(100, malicious engines x 10)"
+        explanation = (
+            f"{result.malicious_count} engine(s) marked the URL as malicious, "
+            "so LogShield raised the risk score based on malicious detections."
+        )
+    elif result.status == "suspicious":
+        formula = "min(80, suspicious engines x 5 + 20)"
+        explanation = (
+            f"{result.suspicious_count} engine(s) marked the URL as suspicious, "
+            "so LogShield added a suspicious baseline plus engine weight."
+        )
+    elif result.status == "safe":
+        formula = "0 when providers report harmless detections and no malicious/suspicious hits"
+        explanation = (
+            f"{result.harmless_count} engine(s) reported harmless and no engine "
+            "reported malicious or suspicious."
+        )
+    else:
+        formula = "50 fallback when reliable provider verdict is unavailable"
+        explanation = (
+            "LogShield could not get a reliable provider verdict for this scan, "
+            "so it uses a neutral unknown score instead of calling the URL safe."
+        )
+
+    return URLScanScoreBreakdown(
+        formula=formula,
+        explanation=explanation,
+        engine_total=engine_total,
+        provider_error=provider_error,
+        engine_results=engine_results,
+    )
+
+
+def _build_scan_response(result, scanned_by: str) -> URLScanResponse:
+    return URLScanResponse(
+        id=result.id,
+        url=result.submitted_url,
+        normalized_url=result.normalized_url,
+        status=result.status,
+        score=result.score,
+        provider=result.provider,
+        summary={
+            "malicious": result.malicious_count,
+            "suspicious": result.suspicious_count,
+            "harmless": result.harmless_count,
+            "undetected": result.undetected_count,
+        },
+        categories=_parse_categories(result.categories),
+        last_analysis_date=result.last_analysis_date,
+        recommendation=_get_recommendation(result.status),
+        score_breakdown=_build_score_breakdown(result),
+        raw_reference={
+            "provider_id": result.provider_reference or "",
+            "permalink": _get_permalink(result.provider, result.provider_reference, result.normalized_url),
+        },
+        scanned_at=result.created_at,
+        scanned_by=scanned_by,
+    )
 
 
 @router.post("/scan", response_model=URLScanResponse)
@@ -75,29 +176,7 @@ async def scan_url(
         # Log the scan request
         await _log_scan_event(db, current_user, "url_scan_requested", request.url, result.status)
         
-        # Convert to response format
-        return URLScanResponse(
-            url=result.submitted_url,
-            normalized_url=result.normalized_url,
-            status=result.status,
-            score=result.score,
-            provider=result.provider,
-            summary={
-                "malicious": result.malicious_count,
-                "suspicious": result.suspicious_count,
-                "harmless": result.harmless_count,
-                "undetected": result.undetected_count,
-            },
-            categories=_parse_categories(result.categories),
-            last_analysis_date=result.last_analysis_date,
-            recommendation=_get_recommendation(result.status),
-            raw_reference={
-                "provider_id": result.provider_reference or "",
-                "permalink": _get_permalink(result.provider, result.provider_reference, result.normalized_url),
-            },
-            scanned_at=result.created_at,
-            scanned_by=current_user.full_name or current_user.email,
-        )
+        return _build_scan_response(result, current_user.full_name or current_user.email)
         
     except ValueError as e:
         # Validation error
@@ -192,28 +271,7 @@ def get_scan_result(
     if result.submitted_by_user_id != current_user.id and current_user.role.name != "admin":
         raise HTTPException(status_code=403, detail="Access denied")
     
-    return URLScanResponse(
-        url=result.submitted_url,
-        normalized_url=result.normalized_url,
-        status=result.status,
-        score=result.score,
-        provider=result.provider,
-        summary={
-            "malicious": result.malicious_count,
-            "suspicious": result.suspicious_count,
-            "harmless": result.harmless_count,
-            "undetected": result.undetected_count,
-        },
-        categories=_parse_categories(result.categories),
-        last_analysis_date=result.last_analysis_date,
-        recommendation=_get_recommendation(result.status),
-        raw_reference={
-            "provider_id": result.provider_reference or "",
-            "permalink": _get_permalink(result.provider, result.provider_reference, result.normalized_url),
-        },
-        scanned_at=result.created_at,
-        scanned_by=result.submitted_by.full_name or result.submitted_by.email,
-    )
+    return _build_scan_response(result, result.submitted_by.full_name or result.submitted_by.email)
 
 
 @router.get("/statistics", response_model=URLScanStatistics)

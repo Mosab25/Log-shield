@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import alerts, audit_logs, auth, dashboard, detection, health, incidents, ip_blocks, logs, normalized_logs, reports, risk, security_center, threat_intel, threats, url_scanner, users
+from app.api.routes import alerts, audit_logs, auth, awareness, dashboard, detection, health, incidents, ip_blocks, logs, normalized_logs, reports, risk, security_center, threat_intel, threats, url_scanner, users
 
 api_router = APIRouter()
 
@@ -13,6 +13,7 @@ api_router.include_router(detection.router, prefix="/detection", tags=["Detectio
 api_router.include_router(risk.router, prefix="/risk", tags=["Risk Scoring"])
 api_router.include_router(alerts.router, prefix="/alerts", tags=["Alerts"])
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["Dashboard"])
+api_router.include_router(awareness.router, prefix="/awareness", tags=["Security Awareness"])
 api_router.include_router(audit_logs.router, prefix="/audit-logs", tags=["Audit Logs"])
 api_router.include_router(incidents.router, prefix="/incidents", tags=["Incidents"])
 api_router.include_router(ip_blocks.router, prefix="/blocks", tags=["IP Blocks"])

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Search, Globe, Database, AlertCircle, Download, CheckCircle, Clock, ShieldAlert } from "lucide-react";
 import { ApiError, apiClient, getAuthHeaders, tokenStorage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { InfoHint, RecommendedActions } from "../components/Guidance";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
 
@@ -18,7 +19,7 @@ function SourceBadge({ source }: { source: string }) {
   return <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-bold ${color}`}>{source === "local" ? <Database className="h-3 w-3" /> : source === "cached" ? <Clock className="h-3 w-3" /> : <Globe className="h-3 w-3" />}{label}</span>;
 }
 
-export function ThreatIntelSearchPage() {
+export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { refreshUser } = useAuth();
@@ -102,12 +103,23 @@ export function ThreatIntelSearchPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        eyebrow="Threat Intelligence"
-        title="CVE Search"
-        description="Search local threat entries and the NVD CVE database while preserving authenticated API access and external-source behavior."
-        icon={ShieldAlert}
-      />
+      {!embedded ? (
+        <PageHeader
+          eyebrow="Threat Intelligence"
+          title="CVE Search"
+          description="Search CVEs, CVSS severity, published dates, affected products, and local threat context for guided vulnerability triage."
+          icon={ShieldAlert}
+        />
+      ) : (
+        <div>
+          <p className="text-xs font-black uppercase text-cyan-200">CVE Search</p>
+          <h2 className="text-xl font-black text-white">NVD and Local CVE Intelligence</h2>
+        </div>
+      )}
+
+      <InfoHint title="How to use CVE results">
+        A CVE is useful only when it connects to your environment. Check the affected product, CVSS severity, exploitability, publication date, and whether the technology exists in your assets.
+      </InfoHint>
 
       <section className="soc-panel p-5">
         <div className="grid gap-3 xl:grid-cols-[1fr_12rem_12rem_auto]">
@@ -144,6 +156,18 @@ export function ThreatIntelSearchPage() {
           <div className="soc-panel px-4 py-3 text-sm text-slate-400">Cached <span className="ml-2 font-black text-amber-300">{sourceSummary.cached}</span></div>
           <div className="soc-panel px-4 py-3 text-sm text-slate-400">NVD <span className="ml-2 font-black text-cyan-300">{sourceSummary.nvd_api}</span></div>
         </div>
+      ) : null}
+
+      {results.length > 0 ? (
+        <RecommendedActions
+          title="How to use this result"
+          actions={[
+            "Confirm whether the affected product exists in your environment.",
+            "Review CVSS severity and exploitability before prioritizing.",
+            "Prioritize patching for exposed or business-critical assets.",
+            "Link relevant CVEs to incidents or reports for context.",
+          ]}
+        />
       ) : null}
 
       {loading ? <SkeletonRows rows={4} /> : null}
