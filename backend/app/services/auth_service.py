@@ -20,9 +20,13 @@ from app.core.security import (
 from app.models.refresh_token import RefreshToken
 from app.models.role import Role
 from app.models.user import User
+from app.models.raw_log import RawLog
+from app.models.normalized_log import NormalizedLog
 from app.schemas.auth import Login2FARequiredResponse, LoginRequest, RegisterRequest
 from app.services.admin_2fa_service import Admin2FAService
 from app.services.audit_service import AuditService
+from app.services.detection_engine import DetectionEngine
+from app.services.parser_service import ParserService
 
 
 @dataclass
@@ -95,6 +99,15 @@ class AuthService:
 
         _ip_failures[source_ip] = state
 
+        AuthService._emit_failed_login_security_event(
+            db=db,
+            source_ip=source_ip,
+            email=email,
+            user_agent=user_agent,
+            failed_attempts=state.failed_attempts,
+            blocked_until=state.blocked_until,
+        )
+
         AuditService.create_audit_log(
             db=db,
             actor_user_id=None,
@@ -129,6 +142,77 @@ class AuthService:
             )
 
         return state
+
+    @staticmethod
+    def _emit_failed_login_security_event(
+        *,
+        db: Session,
+        source_ip: str,
+        email: str,
+        user_agent: str | None,
+        failed_attempts: int,
+        blocked_until: datetime | None,
+    ) -> None:
+        """Emit auth failure into logs/normalization/detection pipeline for SOC visibility."""
+        now = AuthService._now_utc()
+        username = email.split("@", 1)[0] if "@" in email else email
+        raw = RawLog(
+            source="auth-login",
+            source_type="auth_service",
+            raw_message=f"Failed login for user {username} from {source_ip}",
+            received_at=now,
+            event_time=now,
+            parsed_json={
+                "metadata": {
+                    "event_name": "login_failed",
+                    "username": username,
+                    "result": "failed",
+                    "user_agent": user_agent,
+                    "failed_attempts": failed_attempts,
+                    "blocked_until": blocked_until.isoformat() if blocked_until else None,
+                    "auth_origin": "auth_service",
+                }
+            },
+            ingestion_status="received",
+            ip_address=source_ip,
+            hostname="auth-service",
+            event_metadata={
+                "event_name": "login_failed",
+                "username": username,
+                "result": "failed",
+                "user_agent": user_agent,
+                "failed_attempts": failed_attempts,
+                "blocked_until": blocked_until.isoformat() if blocked_until else None,
+                "auth_origin": "auth_service",
+            },
+        )
+        db.add(raw)
+        db.flush()
+
+        parsed = ParserService.parse(raw)
+        normalized = NormalizedLog(
+            raw_log_id=raw.id,
+            event_time=parsed["event_time"],
+            source=parsed["source"],
+            source_type=parsed["source_type"],
+            event_type=parsed["event_type"],
+            username=parsed.get("username"),
+            src_ip=parsed.get("src_ip"),
+            user_agent=parsed.get("user_agent"),
+            hostname=parsed.get("hostname"),
+            status=parsed.get("status"),
+            http_method=parsed.get("http_method"),
+            path=parsed.get("path"),
+            status_code=parsed.get("status_code"),
+            message=parsed["message"],
+            severity=parsed["severity"],
+            parser_status=parsed["parser_status"],
+            event_metadata=parsed.get("metadata") or {},
+        )
+        raw.ingestion_status = "normalized"
+        db.add(normalized)
+        db.flush()
+        DetectionEngine.run_single(db=db, normalized_log_id=normalized.id, current_user=None)
 
     @staticmethod
     def _clear_ip_failures(source_ip: str) -> None:

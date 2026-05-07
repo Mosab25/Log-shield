@@ -36,7 +36,7 @@ class Settings(BaseSettings):
 
     rate_limit_per_minute: int = Field(default=120, alias="RATE_LIMIT_PER_MINUTE")
     auth_rate_limit_per_minute: int = Field(default=20, alias="AUTH_RATE_LIMIT_PER_MINUTE")
-    login_max_failed_attempts: int = Field(default=3, alias="LOGIN_MAX_FAILED_ATTEMPTS")
+    login_max_failed_attempts: int = Field(default=5, alias="LOGIN_MAX_FAILED_ATTEMPTS")
     login_ip_block_minutes: int = Field(default=1, alias="LOGIN_IP_BLOCK_MINUTES")
     report_export_max_rows: int = Field(default=5000, alias="REPORT_EXPORT_MAX_ROWS")
     admin_2fa_enabled: bool = Field(default=False, alias="ADMIN_2FA_ENABLED")
