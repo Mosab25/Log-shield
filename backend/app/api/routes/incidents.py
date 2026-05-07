@@ -30,7 +30,7 @@ router = APIRouter()
 @router.get("", response_model=IncidentListResponse)
 def list_incidents(
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles("admin", "analyst", "viewer"))],
+    current_user: Annotated[User, Depends(require_roles("admin", "analyst"))],
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=200),
     status_filter: str | None = Query(None, alias="status"),
@@ -72,7 +72,7 @@ def create_incident(
 def get_incident(
     incident_id: int,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles("admin", "analyst", "viewer"))],
+    current_user: Annotated[User, Depends(require_roles("admin", "analyst"))],
 ):
     return IncidentService.get_incident_detail(db=db, incident_id=incident_id)
 
@@ -176,7 +176,7 @@ def add_note(
 def get_timeline(
     incident_id: int,
     db: Annotated[Session, Depends(get_db)],
-    current_user: Annotated[User, Depends(require_roles("admin", "analyst", "viewer"))],
+    current_user: Annotated[User, Depends(require_roles("admin", "analyst"))],
 ):
     items = IncidentService.list_timeline(db=db, incident_id=incident_id)
     return IncidentTimelineListResponse(total=len(items), items=items)

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Body, Depends, Query, Request, Response, status as http_status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload
 
@@ -12,15 +12,29 @@ from app.db.session import get_db
 from app.models.alert import Alert
 from app.models.alert_status_history import AlertStatusHistory
 from app.models.user import User
-from app.schemas.alerts import AlertActionResponse, AlertAssignRequest, AlertDetailResponse, AlertHistoryListResponse, AlertListResponse, AlertStatsSummaryResponse, AlertStatusUpdate, AnalystNoteActionResponse, AnalystNoteCreate
+from app.schemas.alerts import (
+    AlertActionResponse,
+    AlertAssignRequest,
+    AlertBlockSourceIpRequest,
+    AlertBlockSourceIpResponse,
+    AlertContainmentUpdate,
+    AlertDetailResponse,
+    AlertHistoryListResponse,
+    AlertListResponse,
+    AlertStatsSummaryResponse,
+    AlertStatusUpdate,
+    AnalystNoteActionResponse,
+    AnalystNoteCreate,
+)
 from app.services.alert_service import AlertService
 from app.services.alert_report_service_simple import AlertReportServiceSimple
+from app.services.ip_block_service import IPBlockService, get_client_ip
 
 router = APIRouter()
 
 
 @router.get("/stats/summary", response_model=AlertStatsSummaryResponse)
-def stats(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst","viewer"))]):
+def stats(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst"))]):
     # Use aggregated SQL queries instead of loading all alerts
     total_alerts = db.execute(select(func.count(Alert.id))).scalar_one()
     
@@ -70,21 +84,63 @@ def stats(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User,
 
 
 @router.get("", response_model=AlertListResponse)
-def list_alerts(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst","viewer"))], skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), status_filter: str | None = Query(None, alias="status"), severity: str | None = None, assigned_to_id: int | None = None, source_ip: str | None = None, username: str | None = None, min_risk_score: int | None = Query(None, ge=0, le=100), max_risk_score: int | None = Query(None, ge=0, le=100), start_date: datetime | None = None, end_date: datetime | None = None):
+def list_alerts(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst"))], skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), status_filter: str | None = Query(None, alias="status"), severity: str | None = None, assigned_to_id: int | None = None, source_ip: str | None = None, username: str | None = None, min_risk_score: int | None = Query(None, ge=0, le=100), max_risk_score: int | None = Query(None, ge=0, le=100), start_date: datetime | None = None, end_date: datetime | None = None):
     total, items = AlertService.list_alerts(db=db, skip=skip, limit=limit, status_filter=status_filter, severity=severity, assigned_to_id=assigned_to_id, source_ip=source_ip, username=username, min_risk_score=min_risk_score, max_risk_score=max_risk_score, start_date=start_date, end_date=end_date)
     return AlertListResponse(total=total, skip=skip, limit=limit, items=items)
 
 
 @router.get("/{alert_id}/history", response_model=AlertHistoryListResponse)
-def history(alert_id: int, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst","viewer"))]):
+def history(alert_id: int, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst"))]):
     AlertService.get_alert(db, alert_id)
     rows = db.execute(select(AlertStatusHistory).where(AlertStatusHistory.alert_id == alert_id).order_by(AlertStatusHistory.changed_at.asc())).scalars().all()
     items = [{"id":h.id,"alert_id":h.alert_id,"old_status":h.old_status,"new_status":h.new_status,"changed_by":AlertService.user_mini(h.changed_by),"comment":h.comment,"changed_at":h.changed_at} for h in rows]
     return AlertHistoryListResponse(total=len(items), items=items)
 
 
+@router.patch("/{alert_id}/containment", response_model=AlertActionResponse)
+def update_containment(
+    alert_id: int,
+    payload: AlertContainmentUpdate,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles("admin", "analyst"))],
+):
+    return AlertActionResponse(
+        message="Alert containment flag updated.",
+        alert=AlertService.update_containment(db=db, alert_id=alert_id, contained=payload.contained, current_user=current_user),
+    )
+
+
+@router.post("/{alert_id}/block-source-ip", response_model=AlertBlockSourceIpResponse, status_code=201)
+def block_alert_source_ip(
+    alert_id: int,
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles("admin", "analyst"))],
+    payload: Annotated[AlertBlockSourceIpRequest | None, Body()] = None,
+):
+    from fastapi import HTTPException
+
+    alert_row = AlertService.get_alert(db, alert_id)
+    summary = AlertService.list_item(db, alert_row)
+    ip = summary.get("source_ip")
+    if not ip:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail="This alert has no source IP to block.")
+    actor_ip = get_client_ip(request)
+    if ip == actor_ip:
+        raise HTTPException(status_code=http_status.HTTP_400_BAD_REQUEST, detail="Cannot block your own current IP address.")
+    reason = (payload.reason if payload is not None and payload.reason else None) or f"Blocked from alert #{alert_id}"
+    block = IPBlockService.create_block(
+        db=db,
+        ip_address=ip,
+        reason=reason,
+        blocked_until=None,
+        actor_user_id=current_user.id,
+    )
+    return AlertBlockSourceIpResponse(message="Source IP blocked successfully.", ip_address=ip, block_id=block.id)
+
+
 @router.get("/{alert_id}", response_model=AlertDetailResponse)
-def detail(alert_id: int, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst","viewer"))]):
+def detail(alert_id: int, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst"))]):
     return AlertService.detail(db, AlertService.get_alert(db, alert_id))
 
 

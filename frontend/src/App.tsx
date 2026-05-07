@@ -53,17 +53,17 @@ function App() {
         <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
           <Route index element={<Navigate to="/home" replace />} />
           <Route path="home" element={<HomePage />} />
-          <Route path="dashboard" element={<DashboardPage />} />
+          <Route path="dashboard" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><DashboardPage /></RoleBasedRoute>} />
           <Route path="awareness" element={<AwarenessPage />} />
           <Route path="awareness/my-scores" element={<MyScoresPage />} />
           <Route path="awareness/quiz/:slug" element={<QuizPage />} />
           <Route path="awareness/manage" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><QuizManagementPage /></RoleBasedRoute>} />
           <Route path="awareness/scores" element={<RoleBasedRoute allowedRoles={["admin"]}><QuizScoresPage /></RoleBasedRoute>} />
           <Route path="awareness/leaderboard" element={<RoleBasedRoute allowedRoles={["admin"]}><LeaderboardPage /></RoleBasedRoute>} />
-          <Route path="logs" element={<LogsPage />} />
-          <Route path="alerts" element={<AlertsPage />} />
-          <Route path="alerts/:id" element={<AlertDetailsPage />} />
-          <Route path="reports" element={<ReportsPage />} />
+          <Route path="logs" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><LogsPage /></RoleBasedRoute>} />
+          <Route path="alerts" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><AlertsPage /></RoleBasedRoute>} />
+          <Route path="alerts/:id" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><AlertDetailsPage /></RoleBasedRoute>} />
+          <Route path="reports" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><ReportsPage /></RoleBasedRoute>} />
           <Route path="url-scanner" element={<URLScannerPage />} />
           <Route path="url-scanner/:id" element={<URLScanDetailsPage />} />
           <Route path="security-center" element={<RoleBasedRoute allowedRoles={["admin"]}><SecurityCenterPage /></RoleBasedRoute>} />
@@ -75,14 +75,14 @@ function App() {
           <Route path="threats" element={<ThreatIntelligencePage />} />
           <Route path="threats/:id" element={<ThreatDetailsPage />} />
           <Route path="threat-intel" element={<ThreatIntelligencePage />} />
-          <Route path="assets" element={<AssetInventoryPage />} />
+          <Route path="assets" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><AssetInventoryPage /></RoleBasedRoute>} />
           <Route path="vulnerabilities" element={<Navigate to="/threat-intelligence" replace />} />
-          <Route path="incidents" element={<IncidentsPage />} />
-          <Route path="incidents/:id" element={<IncidentDetailsPage />} />
-          <Route path="hunting" element={<ThreatHuntingPage />} />
-          <Route path="iocs" element={<IOCManagementPage />} />
+          <Route path="incidents" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><IncidentsPage /></RoleBasedRoute>} />
+          <Route path="incidents/:id" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><IncidentDetailsPage /></RoleBasedRoute>} />
+          <Route path="hunting" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><ThreatHuntingPage /></RoleBasedRoute>} />
+          <Route path="iocs" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><IOCManagementPage /></RoleBasedRoute>} />
           <Route path="playbooks" element={<ResponsePlaybooksPage />} />
-          <Route path="rules" element={<RulesPage />} />
+          <Route path="rules" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><RulesPage /></RoleBasedRoute>} />
           <Route path="tools" element={<SocToolsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/home" replace />} />

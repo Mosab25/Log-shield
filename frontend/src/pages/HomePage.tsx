@@ -18,6 +18,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
+import { useAuth } from "../auth/AuthContext";
 
 // Content object with Arabic and English translations
 const homeContent = {
@@ -196,8 +197,10 @@ function LanguageToggle({ currentLang, onLanguageChange }: { currentLang: 'ar' |
 }
 
 export function HomePage() {
+  const { role } = useAuth();
   const [language, setLanguage] = useState<'ar' | 'en'>('ar');
   const [isLoaded, setIsLoaded] = useState(false);
+  const canUseSocWorkspace = role === "admin" || role === "analyst";
 
   // Load language preference from localStorage on mount
   useEffect(() => {
@@ -336,36 +339,56 @@ export function HomePage() {
               {content.cta.description}
             </p>
             <div className={`mt-8 flex flex-wrap gap-4 justify-center ${isRTL ? 'lg:justify-end' : 'lg:justify-start'}`}>
-              <Link
-                to="/dashboard"
-                className="soc-button-primary flex items-center gap-2 px-6 py-3 text-sm font-semibold"
-              >
-                <BarChart3 className="h-4 w-4" />
-                {content.cta.buttons.dashboard}
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                to="/alerts"
-                className="soc-button-ghost flex items-center gap-2 px-6 py-3 text-sm font-semibold"
-              >
-                <AlertTriangle className="h-4 w-4" />
-                {content.cta.buttons.alerts}
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-              <Link
-                to="/incidents"
-                className="soc-button-ghost flex items-center gap-2 px-6 py-3 text-sm font-semibold"
-              >
-                <Shield className="h-4 w-4" />
-                {content.cta.buttons.incidents}
-                <ArrowRight className="h-4 w-4" />
-              </Link>
+              {canUseSocWorkspace ? (
+                <>
+                  <Link
+                    to="/dashboard"
+                    className="soc-button-primary flex items-center gap-2 px-6 py-3 text-sm font-semibold"
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                    {content.cta.buttons.dashboard}
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                  <Link
+                    to="/alerts"
+                    className="soc-button-ghost flex items-center gap-2 px-6 py-3 text-sm font-semibold"
+                  >
+                    <AlertTriangle className="h-4 w-4" />
+                    {content.cta.buttons.alerts}
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                  <Link
+                    to="/incidents"
+                    className="soc-button-ghost flex items-center gap-2 px-6 py-3 text-sm font-semibold"
+                  >
+                    <Shield className="h-4 w-4" />
+                    {content.cta.buttons.incidents}
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </>
+              ) : null}
               <Link
                 to="/tools"
-                className="soc-button-ghost flex items-center gap-2 px-6 py-3 text-sm font-semibold"
+                className={`${canUseSocWorkspace ? "soc-button-ghost" : "soc-button-primary"} flex items-center gap-2 px-6 py-3 text-sm font-semibold`}
               >
                 <Wrench className="h-4 w-4" />
                 {content.cta.buttons.tools}
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                to="/url-scanner"
+                className="soc-button-ghost flex items-center gap-2 px-6 py-3 text-sm font-semibold"
+              >
+                <Globe className="h-4 w-4" />
+                {language === "ar" ? "ÙØ­Øµ Ø§Ù„Ø±ÙˆØ§Ø¨Ø·" : "Scan URLs"}
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                to="/threat-intelligence"
+                className="soc-button-ghost flex items-center gap-2 px-6 py-3 text-sm font-semibold"
+              >
+                <Search className="h-4 w-4" />
+                {language === "ar" ? "Ø¨Ø­Ø« Ø§Ù„Ø«ØºØ±Ø§Øª" : "Search CVEs"}
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>

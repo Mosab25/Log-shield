@@ -58,6 +58,14 @@ class AlertStatusUpdate(BaseModel):
     comment: str | None = Field(default=None, max_length=2000)
 
 
+class AlertContainmentUpdate(BaseModel):
+    contained: bool
+
+
+class AlertBlockSourceIpRequest(BaseModel):
+    reason: str | None = Field(default=None, max_length=500)
+
+
 class AlertAssignRequest(BaseModel):
     analyst_id: int | None = None
     comment: str | None = Field(default=None, max_length=2000)
@@ -82,6 +90,8 @@ class AlertListItemResponse(BaseModel):
     source_ip: str | None
     username: str | None
     status: str
+    contained: bool = False
+    detection_explanation: str | None = None
     assigned_analyst: UserMiniResponse | None
     attack_type: str | None
     detection_rule_name: str | None
@@ -128,3 +138,9 @@ class AlertActionResponse(BaseModel):
 class AnalystNoteActionResponse(BaseModel):
     message: str
     note: AnalystNoteResponse
+
+
+class AlertBlockSourceIpResponse(BaseModel):
+    message: str
+    ip_address: str
+    block_id: int

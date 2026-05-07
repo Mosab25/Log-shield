@@ -119,6 +119,17 @@ DEFAULT_RULES = [
         "mitre_tactic": "Credential Access",
         "mitre_technique": "T1110 - Brute Force",
     },
+    {
+        "name": "Failed Logins Correlated With Sensitive Path Access",
+        "description": "Correlates multiple failed logins from one IP with requests to /admin paths within a short window (reconnaissance + credential abuse).",
+        "category": "authentication",
+        "severity": "high",
+        "pattern_type": "correlation",
+        "pattern": "failed_login_count >= threshold AND /admin path hits same IP within DETECTION_CORRELATION_WINDOW_MINUTES",
+        "risk_weight": 28,
+        "mitre_tactic": "Credential Access",
+        "mitre_technique": "T1110 - Brute Force",
+    },
 ]
 
 

@@ -40,7 +40,7 @@ def recalc_all(db: Annotated[Session, Depends(get_db)], current_user: Annotated[
 
 
 @router.get("/alert/{alert_id}", response_model=RiskScoreResponse)
-def get_alert_risk(alert_id: int, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst","viewer"))]):
+def get_alert_risk(alert_id: int, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst"))]):
     risk = db.execute(select(RiskScore).where(RiskScore.alert_id == alert_id).order_by(RiskScore.calculated_at.desc(), RiskScore.id.desc()).limit(1)).scalar_one_or_none()
     if not risk:
         from fastapi import HTTPException
@@ -49,7 +49,7 @@ def get_alert_risk(alert_id: int, db: Annotated[Session, Depends(get_db)], curre
 
 
 @router.get("/high-risk-ips", response_model=HighRiskIpListResponse)
-def high_risk_ips(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst","viewer"))], min_score: int = Query(61, ge=0, le=100), limit: int = Query(10, ge=1, le=100)):
+def high_risk_ips(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst"))], min_score: int = Query(61, ge=0, le=100), limit: int = Query(10, ge=1, le=100)):
     from app.services.alert_service import AlertService
     data = {}
     alerts = db.execute(select(Alert).where(Alert.risk_score >= min_score)).scalars().all()
@@ -72,7 +72,7 @@ def high_risk_ips(db: Annotated[Session, Depends(get_db)], current_user: Annotat
 
 
 @router.get("/distribution", response_model=RiskDistributionResponse)
-def distribution(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst","viewer"))]):
+def distribution(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst"))]):
     counts = {"low":0,"medium":0,"high":0,"critical":0}
     for a in db.execute(select(Alert)).scalars().all():
         counts[RiskScoringService.score_to_level(a.risk_score)] += 1

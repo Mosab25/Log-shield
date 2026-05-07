@@ -70,6 +70,21 @@ class Settings(BaseSettings):
     nvd_cache_ttl_hours: int = Field(default=24, alias="NVD_CACHE_TTL_HOURS")
     threat_search_local_first: bool = Field(default=True, alias="THREAT_SEARCH_LOCAL_FIRST")
 
+    # Detection tuning (comma-separated lists; usernames are matched case-insensitively)
+    detection_trusted_ips: str = Field(default="", alias="DETECTION_TRUSTED_IPS")
+    detection_ignore_usernames: str = Field(default="", alias="DETECTION_IGNORE_USERNAMES")
+    detection_sliding_window_minutes: int = Field(default=10, ge=1, le=120, alias="DETECTION_SLIDING_WINDOW_MINUTES")
+    detection_correlation_window_minutes: int = Field(default=15, alias="DETECTION_CORRELATION_WINDOW_MINUTES")
+    detection_brute_force_threshold: int = Field(default=5, ge=1, le=50, alias="DETECTION_BRUTE_FORCE_THRESHOLD")
+    detection_http_404_threshold: int = Field(default=5, ge=1, le=100, alias="DETECTION_HTTP_404_THRESHOLD")
+    detection_server_error_threshold: int = Field(default=8, ge=1, le=200, alias="DETECTION_SERVER_ERROR_THRESHOLD")
+    detection_sensitive_path_hits_threshold: int = Field(default=3, ge=1, le=50, alias="DETECTION_SENSITIVE_PATH_HITS_THRESHOLD")
+    detection_multi_user_failed_threshold: int = Field(default=3, ge=1, le=50, alias="DETECTION_MULTI_USER_FAILED_THRESHOLD")
+    detection_correlation_failed_logins: int = Field(default=3, ge=1, le=20, alias="DETECTION_CORRELATION_FAILED_LOGINS")
+
+    alert_webhook_url: str = Field(default="", alias="ALERT_WEBHOOK_URL")
+    alert_notification_email: str = Field(default="", alias="ALERT_NOTIFICATION_EMAIL")
+
     model_config = SettingsConfigDict(
         env_file=(BACKEND_DIR / ".env", BACKEND_DIR / ".env.local"),
         env_file_encoding="utf-8",
@@ -103,6 +118,22 @@ class Settings(BaseSettings):
         if bool(username) != bool(password):
             return False
         return True
+
+    @property
+    def detection_trusted_ips_list(self) -> list[str]:
+        return [ip.strip() for ip in self.detection_trusted_ips.split(",") if ip.strip()]
+
+    @property
+    def detection_ignore_usernames_set(self) -> set[str]:
+        return {u.strip().lower() for u in self.detection_ignore_usernames.split(",") if u.strip()}
+
+    @property
+    def alert_webhook_configured(self) -> bool:
+        return bool(self.alert_webhook_url.strip())
+
+    @property
+    def alert_email_notification_configured(self) -> bool:
+        return bool(self.alert_notification_email.strip()) and self.resend_configured
 
     @property
     def admin_email_delivery_configured(self) -> bool:

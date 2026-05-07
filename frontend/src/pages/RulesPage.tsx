@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
 import { ListChecks, RefreshCw } from "lucide-react";
 import { apiClient } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import { RulesTable } from "../components/RulesTable";
 import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
 
 export function RulesPage() {
+  const { role } = useAuth();
+  const canToggleRules = role === "admin";
   const [rules, setRules] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +62,9 @@ export function RulesPage() {
         <EmptyState title="No detection rules found" description="Rules will appear here when configured by the backend." icon={ListChecks} />
       ) : null}
 
-      {!loading && rules.length > 0 ? <RulesTable rules={rules} onToggle={toggle} togglingRuleId={togglingRuleId} /> : null}
+      {!loading && rules.length > 0 ? (
+        <RulesTable rules={rules} onToggle={canToggleRules ? toggle : undefined} togglingRuleId={togglingRuleId} />
+      ) : null}
     </div>
   );
 }

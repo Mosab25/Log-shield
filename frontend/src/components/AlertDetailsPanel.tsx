@@ -111,7 +111,14 @@ export function AlertDetailsPanel({ alert, risk }: { alert: any; risk: any | nul
   return (
     <div className="space-y-6">
       <section className="soc-panel p-6">
-        <div className="flex flex-wrap gap-3"><SeverityBadge severity={alert.severity} /><RiskBadge score={alert.risk_score} /><StatusBadge status={alert.status} /></div>
+        <div className="flex flex-wrap items-center gap-3">
+          <SeverityBadge severity={alert.severity} />
+          <RiskBadge score={alert.risk_score} />
+          <StatusBadge status={alert.status} />
+          {alert.contained ? (
+            <span className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-3 py-1 text-xs font-bold uppercase tracking-wide text-emerald-200">Contained</span>
+          ) : null}
+        </div>
         <h1 className="mt-5 text-3xl font-black tracking-tight text-cyber-text">{alert.title}</h1>
         <p className="mt-3 max-w-4xl text-sm leading-6 text-cyber-muted">{alert.description ?? "No description."}</p>
         {attackLabel && (

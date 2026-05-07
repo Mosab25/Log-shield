@@ -17,7 +17,7 @@ from app.services.audit_service import AuditService
 class AlertService:
     ALLOWED_TRANSITIONS = {
         "open": {"investigating", "false_positive", "escalated"},
-        "investigating": {"resolved", "escalated"},
+        "investigating": {"resolved", "escalated", "false_positive"},
         "resolved": set(),
         "false_positive": set(),
         "escalated": set(),
@@ -56,6 +56,8 @@ class AlertService:
             "source_ip": source_ip,
             "username": username,
             "status": alert.status,
+            "contained": bool(getattr(alert, "contained", False)),
+            "detection_explanation": getattr(alert, "detection_explanation", None),
             "assigned_analyst": cls.user_mini(alert.assigned_to),
             "mitre_tactic": alert.detection_rule.mitre_tactic if alert.detection_rule else None,
             "mitre_technique": alert.detection_rule.mitre_technique if alert.detection_rule else None,
@@ -223,6 +225,24 @@ class AlertService:
             db.add(AnalystNote(alert_id=alert.id, analyst_id=current_user.id, note=f"Assignment note: {comment}"))
         AuditService.create_audit_log(db=db, actor_user_id=current_user.id, action="alerts.assign", entity_type="alert", entity_id=str(alert.id), details={"analyst_id": analyst_id})
         db.commit(); db.refresh(alert)
+        return cls.detail(db, alert)
+
+    @classmethod
+    def update_containment(cls, *, db: Session, alert_id: int, contained: bool, current_user: User) -> dict:
+        alert = cls.get_alert(db, alert_id)
+        if bool(alert.contained) == contained:
+            raise HTTPException(status_code=400, detail="Alert already has this containment flag.")
+        alert.contained = contained
+        AuditService.create_audit_log(
+            db=db,
+            actor_user_id=current_user.id,
+            action="alerts.containment_update",
+            entity_type="alert",
+            entity_id=str(alert.id),
+            details={"contained": contained},
+        )
+        db.commit()
+        db.refresh(alert)
         return cls.detail(db, alert)
 
     @classmethod

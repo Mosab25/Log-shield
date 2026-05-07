@@ -39,7 +39,7 @@ def normalize_batch(payload: NormalizeBatchRequest, db: Annotated[Session, Depen
 
 
 @router.get("/normalized")
-def list_normalized_logs(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin", "analyst", "viewer"))], skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), source: str | None = None, source_type: str | None = None, event_type: str | None = None, severity: str | None = None, parser_status: str | None = None, ip_address: str | None = None, username: str | None = None, endpoint: str | None = None, q: str | None = None, start_date: datetime | None = None, end_date: datetime | None = None):
+def list_normalized_logs(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin", "analyst"))], skip: int = Query(0, ge=0), limit: int = Query(50, ge=1, le=100), source: str | None = None, source_type: str | None = None, event_type: str | None = None, severity: str | None = None, parser_status: str | None = None, ip_address: str | None = None, username: str | None = None, endpoint: str | None = None, q: str | None = None, start_date: datetime | None = None, end_date: datetime | None = None):
     try:
         # Get normalized logs with enhanced filters
         total, items = NormalizationService.list_normalized_enhanced(
@@ -80,7 +80,7 @@ def list_normalized_logs(db: Annotated[Session, Depends(get_db)], current_user: 
 
 
 @router.get("/normalized/metadata")
-def get_logs_metadata(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin", "analyst", "viewer"))]):
+def get_logs_metadata(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin", "analyst"))]):
     """Get metadata for filters - event types, categories, sources, etc."""
     return {
         "event_types": LogEventService.get_all_event_types(),
@@ -91,7 +91,7 @@ def get_logs_metadata(db: Annotated[Session, Depends(get_db)], current_user: Ann
 
 
 @router.get("/normalized/{normalized_log_id}", response_model=NormalizedLogResponse)
-def get_normalized_log(normalized_log_id: int, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin", "analyst", "viewer"))]):
+def get_normalized_log(normalized_log_id: int, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin", "analyst"))]):
     from app.models.normalized_log import NormalizedLog
     log = db.get(NormalizedLog, normalized_log_id)
     if not log:

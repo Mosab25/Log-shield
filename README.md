@@ -2,6 +2,39 @@
 
 LogShield is a defensive SOC Tier 1 web platform that collects, normalizes, and analyzes security logs to detect suspicious activities, calculate explainable risk scores, generate alerts, and support incident triage through a professional dashboard.
 
+## Threat detection pipeline
+
+LogShield distinguishes **detected threat activity** (alerts produced from your own normalized logs and correlation rules) from **threat intelligence lookups** (e.g. CVE metadata in Threat Intel search, which describes known vulnerabilities but does not scan your assets).
+
+**Data path:** `Raw Log → Normalize → Detection (DB rules + engine logic) → Alert → (optional) Risk score → Triage / Incident / Response actions`
+
+- **Explainability:** Each new alert stores a `detection_explanation` string (rule summary, thresholds, MITRE context) shown in the alert UI and API.
+- **Noise reduction:** Set `DETECTION_TRUSTED_IPS` (comma-separated) and/or `DETECTION_IGNORE_USERNAMES` (comma-separated, case-insensitive) to skip detection for known scanners or service accounts.
+- **Thresholds:** Window and count thresholds are configurable via `DETECTION_*` environment variables (see `backend/.env.example`).
+- **Correlation:** The rule *Failed Logins Correlated With Sensitive Path Access* combines failed authentication and `/admin` path activity from the same IP within `DETECTION_CORRELATION_WINDOW_MINUTES`.
+- **Response:** Analysts/admins can **mark an alert as contained**, **block the alert’s source IP** (same enforcement as IP Blocks), and follow the existing lifecycle (`open` → `investigating` → `resolved` / `false_positive`). `investigating` may also transition to `false_positive`.
+- **Notifications:** For `high` and `critical` severities, optionally set `ALERT_WEBHOOK_URL` (JSON POST) and/or `ALERT_NOTIFICATION_EMAIL` with Resend configured (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`).
+
+After upgrading the database, add any newly seeded rules to an existing environment:
+
+```bash
+cd backend
+alembic upgrade head
+python -c "from app.db.session import SessionLocal; from app.services.detection_rules import DetectionRulesService; db=SessionLocal(); DetectionRulesService.seed_default_rules(db=db); db.close()"
+```
+
+### Manual demo (≈5–10 steps)
+
+1. Start PostgreSQL, backend (`uvicorn`), and frontend (`npm run dev`).
+2. Sign in as **analyst** or **admin** (`analyst@logshield.demo` / `Analyst@12345` after `python -m app.seed_demo`).
+3. **Ingest** a raw log: `POST /api/logs/ingest` with a web log line that triggers parsing (e.g. SQL-like pattern in message) or use **Logs** UI if wired to the same API.
+4. **Normalize:** `POST /api/logs/normalize/{raw_log_id}`.
+5. **Run detection:** `POST /api/detection/run/{normalized_log_id}`.
+6. Open the **Alerts** UI: confirm severity, read **Why this alert was generated** (explanation text).
+7. **Triage:** move status to `investigating`, add a note, optionally **Create Incident** from the alert.
+8. **Response:** use **Mark contained** and/or **Block source IP** on the alert detail page (analyst/admin).
+9. (Optional) Configure `ALERT_WEBHOOK_URL` and create a **critical** alert to verify the webhook fires.
+
 ## Features
 
 - JWT authentication and refresh tokens

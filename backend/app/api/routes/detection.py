@@ -18,7 +18,7 @@ router = APIRouter()
 
 
 @router.get("/rules", response_model=DetectionRuleListResponse)
-def list_rules(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst","viewer"))], skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=200), category: str | None = None, is_active: bool | None = None):
+def list_rules(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst"))], skip: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=200), category: str | None = None, is_active: bool | None = None):
     query = select(DetectionRule)
     count_query = select(func.count(DetectionRule.id))
     if category:

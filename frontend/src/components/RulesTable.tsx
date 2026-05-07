@@ -7,9 +7,10 @@ export function RulesTable({
   togglingRuleId,
 }: {
   rules: any[];
-  onToggle: (rule: any) => void;
+  onToggle?: (rule: any) => void;
   togglingRuleId?: number | null;
 }) {
+  const canToggle = Boolean(onToggle);
   return (
     <div className="soc-panel overflow-hidden">
       <div className="overflow-x-auto">
@@ -23,7 +24,7 @@ export function RulesTable({
               <th>Last Triggered</th>
               <th>Updated</th>
               <th>Status</th>
-              <th>Action</th>
+              {canToggle ? <th>Action</th> : null}
             </tr>
           </thead>
           <tbody>
@@ -39,15 +40,17 @@ export function RulesTable({
                 <td className="whitespace-nowrap text-cyber-muted">{rule.last_triggered_at ? new Date(rule.last_triggered_at).toLocaleString() : "N/A"}</td>
                 <td className="whitespace-nowrap text-cyber-muted">{rule.updated_at ? new Date(rule.updated_at).toLocaleString() : "N/A"}</td>
                 <td><StatusBadge status={rule.is_active ? "open" : "false_positive"} /></td>
-                <td>
-                  <button
-                    onClick={() => onToggle(rule)}
-                    disabled={togglingRuleId === rule.id}
-                    className={rule.is_active ? "soc-button-ghost px-3 py-1.5 text-xs" : "soc-button-primary px-3 py-1.5 text-xs"}
-                  >
-                    {togglingRuleId === rule.id ? "Updating..." : rule.is_active ? "Disable" : "Enable"}
-                  </button>
-                </td>
+                {canToggle ? (
+                  <td>
+                    <button
+                      onClick={() => onToggle?.(rule)}
+                      disabled={togglingRuleId === rule.id}
+                      className={rule.is_active ? "soc-button-ghost px-3 py-1.5 text-xs" : "soc-button-primary px-3 py-1.5 text-xs"}
+                    >
+                      {togglingRuleId === rule.id ? "Updating..." : rule.is_active ? "Disable" : "Enable"}
+                    </button>
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>

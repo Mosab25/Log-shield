@@ -22,7 +22,8 @@ function SourceBadge({ source }: { source: string }) {
 export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { refreshUser } = useAuth();
+  const { refreshUser, role } = useAuth();
+  const canImportCves = role === "admin" || role === "analyst";
   const [query, setQuery] = useState("");
   const [severity, setSeverity] = useState("");
   const [source, setSource] = useState("all");
@@ -198,7 +199,7 @@ export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean
                       </td>
                       <td>{r.status === "approved" ? <CheckCircle className="h-5 w-5 text-emerald-400" /> : r.status === "pending_review" ? <Clock className="h-5 w-5 text-amber-400" /> : <AlertCircle className="h-5 w-5 text-slate-500" />}</td>
                       <td>
-                        {r.result_source === "nvd_api" && r.id === null ? (
+                        {canImportCves && r.result_source === "nvd_api" && r.id === null ? (
                           <button onClick={() => void importCVE(r.cve_id)} className="soc-button-ghost px-3 py-1.5 text-xs"><Download className="h-4 w-4" />Import</button>
                         ) : r.id ? (
                           <Link className="font-semibold text-cyan-200 hover:text-white" to={`/threats/${r.id}`}>View</Link>

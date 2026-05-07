@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -36,6 +36,8 @@ class Alert(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    detection_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    contained: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
 
     normalized_log: Mapped["NormalizedLog | None"] = relationship("NormalizedLog", back_populates="alerts")
     detection_rule: Mapped["DetectionRule | None"] = relationship("DetectionRule", back_populates="alerts")

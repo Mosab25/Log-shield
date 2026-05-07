@@ -3,10 +3,12 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
 from app.db.session import get_db
+from app.models.threat_entry import ThreatEntry
 from app.models.user import User
 from app.schemas.threats import (
     AlertThreatLinkCreate,
@@ -31,9 +33,40 @@ from app.services.threat_service import ThreatService
 router = APIRouter()
 
 
+def _scrub_operational_threat_fields(item: dict) -> dict:
+    sanitized = dict(item)
+    sanitized["submitted_by"] = None
+    sanitized["reviewed_by"] = None
+    sanitized["reviews"] = []
+    sanitized["linked_alerts"] = []
+    return sanitized
+
+
+def _approved_threat_stats(db: Session) -> dict:
+    entries = db.execute(select(ThreatEntry).where(ThreatEntry.status == "approved")).scalars().all()
+    by_type: dict[str, int] = {}
+    by_severity: dict[str, int] = {}
+    by_status: dict[str, int] = {}
+    by_source: dict[str, int] = {}
+    for entry in entries:
+        by_type[entry.type] = by_type.get(entry.type, 0) + 1
+        by_severity[entry.severity] = by_severity.get(entry.severity, 0) + 1
+        by_status[entry.status] = by_status.get(entry.status, 0) + 1
+        by_source[entry.source] = by_source.get(entry.source, 0) + 1
+    return {
+        "total_entries": len(entries),
+        "by_type": by_type,
+        "by_severity": by_severity,
+        "by_status": by_status,
+        "by_source": by_source,
+    }
+
+
 # ── Stats ────────────────────────────────────────────────────
 @router.get("/stats/summary", response_model=ThreatStatsSummaryResponse)
 def stats(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin", "analyst", "viewer"))]):
+    if current_user.role and current_user.role.name == "viewer":
+        return _approved_threat_stats(db)
     return ThreatService.stats(db)
 
 
@@ -56,7 +89,11 @@ def list_entries(
     source: str | None = None,
     search: str | None = None,
 ):
-    total, items = ThreatService.list_entries(db=db, skip=skip, limit=limit, type_filter=type, severity=severity, status_filter=status, source=source, search=search)
+    is_viewer = bool(current_user.role and current_user.role.name == "viewer")
+    effective_status = "approved" if is_viewer else status
+    total, items = ThreatService.list_entries(db=db, skip=skip, limit=limit, type_filter=type, severity=severity, status_filter=effective_status, source=source, search=search)
+    if is_viewer:
+        items = [_scrub_operational_threat_fields(item) for item in items]
     return ThreatEntryListResponse(total=total, skip=skip, limit=limit, items=items)
 
 
@@ -71,7 +108,10 @@ def create_entry(payload: ThreatEntryCreate, db: Annotated[Session, Depends(get_
 @router.get("/{entry_id}", response_model=ThreatEntryDetailResponse)
 def get_entry(entry_id: int, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin", "analyst", "viewer"))]):
     entry = ThreatService._get_entry(db, entry_id)
-    return ThreatService.detail(db, entry)
+    item = ThreatService.detail(db, entry)
+    if current_user.role and current_user.role.name == "viewer":
+        return _scrub_operational_threat_fields(item)
+    return item
 
 
 # ── Update entry ─────────────────────────────────────────────

@@ -67,3 +67,41 @@ class EmailService:
         except error.URLError as exc:
             logger.error("Admin 2FA email delivery failed: Resend unreachable.")
             raise RuntimeError("Unable to send the admin verification code. Please try again later.") from exc
+
+    @staticmethod
+    def send_alert_notification(*, subject: str, text_body: str) -> None:
+        """Notify SOC inbox for high/critical alerts via Resend (same transport as optional integrations)."""
+        if not settings.alert_notification_email.strip():
+            raise RuntimeError("Alert notification email is not configured.")
+        if settings.normalized_email_provider != "resend" or not settings.resend_configured:
+            raise RuntimeError("Resend is not configured for alert notifications.")
+
+        payload = {
+            "from": settings.resend_from_email.strip(),
+            "to": [settings.alert_notification_email.strip()],
+            "subject": subject[:998],
+            "text": text_body,
+        }
+        body = json.dumps(payload).encode("utf-8")
+        req = request.Request(
+            EmailService._RESEND_ENDPOINT,
+            data=body,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {settings.resend_api_key.strip()}",
+                "Content-Type": "application/json",
+                "User-Agent": "LogShield/1.0",
+            },
+        )
+        timeout = min(10, max(3, settings.email_request_timeout_seconds))
+        try:
+            with request.urlopen(req, timeout=timeout) as response:
+                status_code = getattr(response, "status", 0)
+                if status_code >= 400:
+                    raise RuntimeError("Unable to send alert notification email.")
+        except error.HTTPError as exc:
+            logger.error("Alert notification email failed via Resend with status %s.", exc.code)
+            raise RuntimeError("Unable to send alert notification email.") from exc
+        except error.URLError as exc:
+            logger.error("Alert notification email failed: Resend unreachable.")
+            raise RuntimeError("Unable to send alert notification email.") from exc

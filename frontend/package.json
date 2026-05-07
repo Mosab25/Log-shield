@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc && vite build && node scripts/copy-static-headers.mjs",
+    "build": "tsc && vite build",
     "postbuild": "node scripts/copy-static-headers.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "lint": "tsc --noEmit"

@@ -3,6 +3,7 @@ import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { ShieldAlert, Plus, Search, X } from "lucide-react";
 import { apiClient } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import { Pagination } from "../components/Pagination";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
@@ -44,6 +45,8 @@ function EntryStatusBadge({ status }: { status: string }) {
 }
 
 export function ThreatsPage({ embedded = false }: { embedded?: boolean }) {
+  const { role } = useAuth();
+  const canManageThreats = role === "admin" || role === "analyst";
   const [threats, setThreats] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -87,7 +90,7 @@ export function ThreatsPage({ embedded = false }: { embedded?: boolean }) {
           title="Knowledge Base"
           description="Curate vulnerabilities, indicators, MITRE mapping, CVEs, and approved threat references."
           icon={ShieldAlert}
-          actions={<button onClick={() => setShowCreate(true)} className="soc-button-primary"><Plus className="h-5 w-5" />New Entry</button>}
+          actions={canManageThreats ? <button onClick={() => setShowCreate(true)} className="soc-button-primary"><Plus className="h-5 w-5" />New Entry</button> : undefined}
         />
       ) : (
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -95,7 +98,7 @@ export function ThreatsPage({ embedded = false }: { embedded?: boolean }) {
             <p className="text-xs font-black uppercase text-cyan-200">Knowledge Base</p>
             <h2 className="text-xl font-black text-white">Curated Threat Entries</h2>
           </div>
-          <button onClick={() => setShowCreate(true)} className="soc-button-primary"><Plus className="h-5 w-5" />New Entry</button>
+          {canManageThreats ? <button onClick={() => setShowCreate(true)} className="soc-button-primary"><Plus className="h-5 w-5" />New Entry</button> : null}
         </div>
       )}
 
@@ -107,11 +110,13 @@ export function ThreatsPage({ embedded = false }: { embedded?: boolean }) {
           </div>
           <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1); }} className="soc-input"><option value="">All types</option><option value="vulnerability">Vulnerability</option><option value="attack_pattern">Attack Pattern</option><option value="cve">CVE</option><option value="mitre_technique">MITRE Technique</option><option value="ioc">IOC</option></select>
           <select value={severityFilter} onChange={e => { setSeverityFilter(e.target.value); setPage(1); }} className="soc-input"><option value="">All severities</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
-          <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className="soc-input"><option value="">All statuses</option><option value="draft">Draft</option><option value="pending_review">Pending Review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="archived">Archived</option></select>
+          {canManageThreats ? (
+            <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1); }} className="soc-input"><option value="">All statuses</option><option value="draft">Draft</option><option value="pending_review">Pending Review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="archived">Archived</option></select>
+          ) : null}
         </div>
       </section>
 
-      {showCreate ? <CreateThreatModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); void load(); }} /> : null}
+      {canManageThreats && showCreate ? <CreateThreatModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); void load(); }} /> : null}
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
       {loading ? <SkeletonRows rows={6} /> : null}
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ShieldAlert, ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, FileText } from "lucide-react";
 import { apiClient } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { EmptyState, ErrorState, SectionHeader, SkeletonBlock } from "../components/UI";
 
@@ -35,6 +36,8 @@ function DetailTile({ label, value }: { label: string; value: string }) {
 
 export function ThreatDetailsPage() {
   const { id } = useParams();
+  const { role } = useAuth();
+  const canViewOperationalLinks = role === "admin" || role === "analyst";
   const [threat, setThreat] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -143,7 +146,7 @@ export function ThreatDetailsPage() {
         </section>
       ) : null}
 
-      {threat.linked_alerts?.length > 0 ? (
+      {canViewOperationalLinks && threat.linked_alerts?.length > 0 ? (
         <section className="soc-panel p-5">
           <SectionHeader title="Linked Alerts" icon={ShieldAlert} />
           <div className="space-y-2">
@@ -155,9 +158,9 @@ export function ThreatDetailsPage() {
             ))}
           </div>
         </section>
-      ) : (
+      ) : canViewOperationalLinks ? (
         <EmptyState title="No linked alerts" description="Alerts associated with this threat entry will appear here." icon={ShieldAlert} />
-      )}
+      ) : null}
     </div>
   );
 }

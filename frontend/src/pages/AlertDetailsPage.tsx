@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Briefcase, Link2, Plus } from "lucide-react";
+import { Ban, Briefcase, Link2, Plus, ShieldCheck } from "lucide-react";
 import { apiClient } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { AlertDetailsPanel } from "../components/AlertDetailsPanel";
@@ -35,6 +35,9 @@ export function AlertDetailsPage() {
   const [incidentError, setIncidentError] = useState<string | null>(null);
   const [incidentSaving, setIncidentSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [responseMessage, setResponseMessage] = useState<string | null>(null);
+  const [responseError, setResponseError] = useState<string | null>(null);
+  const [responseBusy, setResponseBusy] = useState(false);
 
   async function loadLinkedIncidents(alertId: string) {
     const response = await apiClient.get<IncidentListResponse>(`/incidents?alert_id=${alertId}&limit=20`);
@@ -84,6 +87,40 @@ export function AlertDetailsPage() {
     }
   }
 
+  async function toggleContainment() {
+    if (!id || !alert || responseBusy || !canManageIncidents) return;
+    setResponseBusy(true);
+    setResponseMessage(null);
+    setResponseError(null);
+    try {
+      const next = !alert.contained;
+      await apiClient.patch(`/alerts/${id}/containment`, { contained: next });
+      setResponseMessage(next ? "Marked as contained." : "Containment flag cleared.");
+      await load();
+    } catch (err: any) {
+      setResponseError(err?.message || "Could not update containment.");
+    } finally {
+      setResponseBusy(false);
+    }
+  }
+
+  async function blockSourceIp() {
+    if (!id || !alert?.source_ip || responseBusy || !canManageIncidents) return;
+    if (!window.confirm(`Block source IP ${alert.source_ip} at the platform edge? This affects login and API for that IP.`)) return;
+    setResponseBusy(true);
+    setResponseMessage(null);
+    setResponseError(null);
+    try {
+      await apiClient.post(`/alerts/${id}/block-source-ip`, {});
+      setResponseMessage(`IP ${alert.source_ip} blocked. Review Admin → IP Blocks.`);
+      await load();
+    } catch (err: any) {
+      setResponseError(err?.message || "Could not block source IP.");
+    } finally {
+      setResponseBusy(false);
+    }
+  }
+
   async function addToIncident(event: FormEvent) {
     event.preventDefault();
     if (!id || !incidentId.trim() || incidentSaving) return;
@@ -104,9 +141,36 @@ export function AlertDetailsPage() {
 
   if (error) return <ErrorState message={error} onRetry={() => void load()} />;
   if (!alert) return <div className="space-y-4"><SkeletonBlock className="h-52" /><SkeletonBlock className="h-72" /></div>;
+
+  const explainPoints: string[] = alert.detection_explanation
+    ? String(alert.detection_explanation).split("\n").map((s: string) => s.trim()).filter(Boolean)
+    : [
+        alert.description || "The detection rule matched suspicious event evidence.",
+        alert.mitre_technique ? `MITRE technique mapping: ${alert.mitre_technique}.` : "No MITRE mapping is attached yet.",
+        alert.attack_type ? `Rule category: ${String(alert.attack_type).replace(/_/g, " ")}.` : "Review related logs to confirm the activity pattern.",
+      ];
+
   return (
     <div className="space-y-6">
       <AlertDetailsPanel alert={alert} risk={risk} />
+
+      {canManageIncidents ? (
+        <section className="soc-panel p-5">
+          <SectionHeader title="Threat response" icon={ShieldCheck} />
+          {responseMessage ? <div className="mb-3 rounded-2xl border border-emerald-300/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{responseMessage}</div> : null}
+          {responseError ? <div className="mb-3"><ErrorState message={responseError} /></div> : null}
+          <div className="flex flex-wrap gap-3">
+            <button type="button" disabled={responseBusy} onClick={() => void toggleContainment()} className="soc-button-ghost flex items-center gap-2">
+              {alert.contained ? "Clear containment flag" : "Mark contained"}
+            </button>
+            <button type="button" disabled={responseBusy || !alert.source_ip} onClick={() => void blockSourceIp()} className="soc-button-primary flex items-center gap-2">
+              <Ban className="h-4 w-4" />
+              Block source IP
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-slate-500">Blocking uses the same enforcement as IP Blocks (login and API). Requires a source IP on the alert.</p>
+        </section>
+      ) : null}
 
       <section className="grid gap-4 xl:grid-cols-3">
         <InvestigationChecklist
@@ -120,14 +184,7 @@ export function AlertDetailsPage() {
             "Add analyst notes and update status.",
           ]}
         />
-        <EvidenceExplanation
-          title="Why this alert was generated"
-          points={[
-            alert.description || "The detection rule matched suspicious event evidence.",
-            alert.mitre_technique ? `MITRE technique mapping: ${alert.mitre_technique}.` : "No MITRE mapping is attached yet.",
-            alert.attack_type ? `Attack family: ${String(alert.attack_type).replace(/_/g, " ")}.` : "Review related logs to confirm the activity pattern.",
-          ]}
-        />
+        <EvidenceExplanation title="Why this alert was generated" points={explainPoints} />
         <RiskExplanation
           score={alert.risk_score}
           reasons={[
