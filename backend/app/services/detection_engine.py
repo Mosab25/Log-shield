@@ -19,6 +19,13 @@ logger = logging.getLogger("logshield.detection")
 
 
 class DetectionEngine:
+    _SEVERITY_BASE_RISK = {
+        "low": 20,
+        "medium": 45,
+        "high": 70,
+        "critical": 85,
+    }
+
     @staticmethod
     def _rule(db: Session, name: str) -> DetectionRule | None:
         return db.execute(select(DetectionRule).where(DetectionRule.name == name, DetectionRule.is_active.is_(True))).scalar_one_or_none()
@@ -52,11 +59,16 @@ class DetectionEngine:
             expl_parts.append(f"MITRE: {rule.mitre_tactic or ''} {rule.mitre_technique or ''}".strip())
         merged_expl = "\n".join(p for p in expl_parts if p)
 
+        initial_risk = max(
+            DetectionEngine._SEVERITY_BASE_RISK.get(rule.severity, 40),
+            min(100, int(rule.risk_weight or 0) + 40),
+        )
+
         alert = Alert(
             title=title,
             description=description,
             severity=rule.severity,
-            risk_score=0,
+            risk_score=initial_risk,
             status="open",
             normalized_log_id=primary_log.id,
             detection_rule_id=rule.id,

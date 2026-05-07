@@ -22,6 +22,8 @@ from app.models.role import Role
 from app.models.user import User
 from app.models.raw_log import RawLog
 from app.models.normalized_log import NormalizedLog
+from app.models.alert import Alert
+from app.models.detection_rule import DetectionRule
 from app.schemas.auth import Login2FARequiredResponse, LoginRequest, RegisterRequest
 from app.services.admin_2fa_service import Admin2FAService
 from app.services.audit_service import AuditService
@@ -212,7 +214,54 @@ class AuthService:
         raw.ingestion_status = "normalized"
         db.add(normalized)
         db.flush()
-        DetectionEngine.run_single(db=db, normalized_log_id=normalized.id, current_user=None)
+        created = DetectionEngine.run_single(db=db, normalized_log_id=normalized.id, current_user=None)
+        should_force_bruteforce_alert = (
+            blocked_until is not None
+            or failed_attempts >= settings.detection_brute_force_threshold
+        )
+        if not created and should_force_bruteforce_alert:
+            AuthService._create_bruteforce_fallback_alert(
+                db=db,
+                normalized_log=normalized,
+                failed_attempts=failed_attempts,
+            )
+
+    @staticmethod
+    def _create_bruteforce_fallback_alert(*, db: Session, normalized_log: NormalizedLog, failed_attempts: int) -> None:
+        rule = db.execute(
+            select(DetectionRule).where(
+                DetectionRule.name == "Brute Force Login",
+                DetectionRule.is_active.is_(True),
+            )
+        ).scalar_one_or_none()
+
+        existing = db.execute(
+            select(Alert).where(
+                Alert.normalized_log_id == normalized_log.id,
+                Alert.title == f"Brute Force Login: {normalized_log.source}",
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return
+
+        alert = Alert(
+            title=f"Brute Force Login: {normalized_log.source}",
+            description=(
+                f"{failed_attempts} failed login attempts detected for "
+                f"{normalized_log.username or 'unknown user'} from {normalized_log.src_ip or 'unknown ip'}."
+            ),
+            severity="critical",
+            status="open",
+            risk_score=85,
+            normalized_log_id=normalized_log.id,
+            detection_rule_id=rule.id if rule is not None else None,
+            detection_explanation=(
+                "Auth-service fallback detection: repeated failed login attempts reached "
+                f"threshold {settings.detection_brute_force_threshold} within authentication flow."
+            ),
+        )
+        db.add(alert)
+        db.commit()
 
     @staticmethod
     def _clear_ip_failures(source_ip: str) -> None:

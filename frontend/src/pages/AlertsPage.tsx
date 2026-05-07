@@ -53,7 +53,7 @@ export function AlertsPage() {
       const p = new URLSearchParams({ skip: String((page - 1) * pageSize), limit: String(pageSize) });
       if (status) p.set("status", status);
       if (severity) p.set("severity", severity);
-      const res = await apiClient.get<any>(`/alerts?${p.toString()}`);
+      const res = await apiClient.getUncached<any>(`/alerts?${p.toString()}`);
       setAlerts(Array.isArray(res.items) ? res.items : []);
       setTotal(Number(res.total ?? 0));
     } catch (err: any) {
