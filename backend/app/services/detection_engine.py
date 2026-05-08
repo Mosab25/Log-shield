@@ -23,7 +23,7 @@ class DetectionEngine:
         "low": 20,
         "medium": 45,
         "high": 70,
-        "critical": 85,
+        "critical": 100,
     }
 
     @staticmethod

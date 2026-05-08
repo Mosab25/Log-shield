@@ -252,7 +252,7 @@ class AuthService:
             ),
             severity="critical",
             status="open",
-            risk_score=85,
+            risk_score=100,
             normalized_log_id=normalized_log.id,
             detection_rule_id=rule.id if rule is not None else None,
             detection_explanation=(

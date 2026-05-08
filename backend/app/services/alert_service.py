@@ -189,7 +189,7 @@ class AlertService:
             count_query = count_query.where(f)
         
         total = db.execute(count_query).scalar_one()
-        alerts = db.execute(query.order_by(Alert.risk_score.desc(), Alert.created_at.desc()).offset(skip).limit(limit)).scalars().all()
+        alerts = db.execute(query.order_by(Alert.created_at.desc(), Alert.risk_score.desc()).offset(skip).limit(limit)).scalars().all()
         items = cls._list_items(db, list(alerts))
         
         # Note: We removed Python-level filtering since it's now done in SQL
