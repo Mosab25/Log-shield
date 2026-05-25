@@ -5,13 +5,15 @@
   "description": "LogShield frontend built with React, Vite, TypeScript, Tailwind CSS, and Recharts.",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "vite",
     "build": "tsc && vite build",
     "postbuild": "node scripts/copy-static-headers.mjs",
-    "preview": "vite preview --host 0.0.0.0",
+    "preview": "vite preview --host 127.0.0.1 --port 5173 --strictPort",
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.100.14",
+    "chart.js": "^4.5.1",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

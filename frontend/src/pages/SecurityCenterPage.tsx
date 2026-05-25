@@ -2,7 +2,12 @@ import { useEffect, useState } from "react";
 import { Activity, AlertTriangle, Ban, Database, Lock, RefreshCw, Shield, ShieldCheck, Users, UserCheck, Clock, TrendingUp, AlertCircle, CheckCircle, Info, XCircle } from "lucide-react";
 import { apiClient } from "../api/client";
 import { InfoHint, RecommendedActions } from "../components/Guidance";
-import { EmptyState, ErrorState, PageHeader, SectionHeader, SkeletonBlock } from "../components/UI";
+import { EmptyState, ErrorState, SectionHeader, SkeletonBlock } from "../components/UI";
+import { Chip } from "../components/ui/Chip";
+import { PageHeader } from "../components/ui/PageHeader";
+import { RowActions } from "../components/ui/RowActions";
+import { StatCard } from "../components/ui/StatCard";
+import { AppModal } from "../components/ui/AppModal";
 
 interface SecurityControl {
   admin_2fa_enabled: boolean;
@@ -68,6 +73,8 @@ export function SecurityCenterPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [copyMessage, setCopyMessage] = useState<string | null>(null);
 
   async function loadSecurityData() {
     setLoading(true);
@@ -126,8 +133,8 @@ export function SecurityCenterPage() {
   }
 
   function getActionBadgeColor(action: string) {
-    if (action.includes("login")) return "bg-blue-500/20 text-blue-300 border-blue-500/30";
-    if (action.includes("admin")) return "bg-purple-500/20 text-purple-300 border-purple-500/30";
+    if (action.includes("login")) return "bg-cyan-500/20 text-cyan-300 border-cyan-500/30";
+    if (action.includes("admin")) return "bg-cyan-500/10 text-cyan-300 border-cyan-500/25";
     if (action.includes("block")) return "bg-red-500/20 text-red-300 border-red-500/30";
     if (action.includes("user")) return "bg-green-500/20 text-green-300 border-green-500/30";
     if (action.includes("rule")) return "bg-amber-500/20 text-amber-300 border-amber-500/30";
@@ -135,13 +142,78 @@ export function SecurityCenterPage() {
     return "bg-slate-500/20 text-slate-300 border-slate-500/30";
   }
 
+  function controlTone(enabled: boolean): "safe" | "critical" {
+    return enabled ? "safe" : "critical";
+  }
+
+  async function copyText(text: string) {
+    if (!text.trim()) return;
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "fixed";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    if (!ok) throw new Error("Clipboard unavailable.");
+  }
+
+  function buildSecuritySummary() {
+    if (!data) return "";
+    return [
+      "LogShield Security Center Finding",
+      `Security Score: ${securityScore}%`,
+      `Admin 2FA: ${data.admin_2fa.enabled ? "Enabled" : "Disabled"}`,
+      `Root Admin Protection: ${data.controls.root_admin_protected ? "Protected" : "Unprotected"}`,
+      `IP Blocking: ${data.controls.ip_blocking_enabled ? "Active" : "Inactive"}`,
+      `Rate Limiting: ${data.controls.rate_limiting_enabled ? "Enabled" : "Disabled"}`,
+      `RBAC: ${data.controls.rbac_enabled ? "Active" : "Inactive"}`,
+      `Audit Logging: ${data.controls.audit_logging_enabled ? "Active" : "Inactive"}`,
+      `Open Critical Alerts: ${data.metrics.open_critical_alerts}`,
+      `Open Incidents: ${data.metrics.open_incidents}`,
+      "",
+      "Recommendations:",
+      ...(data.recommendations.length ? data.recommendations.map(rec => `- [${rec.level}] ${rec.title}: ${rec.description}`) : ["- No recommendations currently available."]),
+    ].join("\n");
+  }
+
+  function handleCopyFinding() {
+    void copyText(buildSecuritySummary()).then(
+      () => {
+        setCopyMessage("Security finding copied.");
+        window.setTimeout(() => setCopyMessage(null), 2200);
+      },
+      () => {
+        setCopyMessage("Unable to copy finding. Please try again.");
+        window.setTimeout(() => setCopyMessage(null), 2200);
+      },
+    );
+  }
+
+  const securityScore = data
+    ? Math.round(([
+      data.controls.admin_2fa_enabled,
+      data.controls.root_admin_protected,
+      data.controls.ip_blocking_enabled,
+      data.controls.rate_limiting_enabled,
+      data.controls.rbac_enabled,
+      data.controls.audit_logging_enabled,
+    ].filter(Boolean).length / 6) * 100)
+    : 0;
+
   if (loading) {
     return (
       <div className="space-y-6">
         <PageHeader
-          eyebrow="Security"
+          eyebrow="SECURITY POSTURE"
           title="Security Center"
-          description="Centralized visibility into platform security controls, authentication protection, IP blocking, and sensitive administrative activity."
+          description="Review platform hardening, access controls, headers, sessions, and defensive safeguards."
         />
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {[...Array(6)].map((_, i) => (
@@ -185,24 +257,39 @@ export function SecurityCenterPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Security"
+        eyebrow="SECURITY POSTURE"
         title="Security Center"
-        description="Understand platform security controls, authentication protection, IP blocking, audit logging, and administrative activity."
+        description="Review platform hardening, access controls, headers, sessions, and defensive safeguards."
         actions={
-          <button
-            onClick={handleRefresh}
-            className="soc-button-ghost flex items-center gap-2 px-4 py-2 text-sm font-semibold"
-            disabled={loading}
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleRefresh}
+              className="soc-button-ghost flex items-center gap-2 px-4 py-2 text-sm font-semibold"
+              disabled={loading}
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </button>
+            <RowActions
+              items={[
+                { key: "details", label: "View Details", variant: "primary", onClick: () => setDetailsOpen(true) },
+                { key: "copy", label: "Copy Finding", onClick: handleCopyFinding },
+              ]}
+            />
+          </div>
         }
       />
 
       <InfoHint title="What each control means">
         2FA protects admin login, IP Blocking denies known risky sources, Root Admin Protection prevents accidental lockout, Audit Logging preserves evidence, and Rate Limiting slows brute-force attempts.
       </InfoHint>
+
+      {copyMessage ? (
+        <div className="rounded-xl border border-emerald-300/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+          {copyMessage}
+        </div>
+      ) : null}
 
       <RecommendedActions
         title="Security posture recommendations"
@@ -214,6 +301,24 @@ export function SecurityCenterPage() {
         ]}
       />
 
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Security Score" value={`${securityScore}%`} icon={<ShieldCheck className="h-4 w-4" />} />
+        <StatCard
+          label="Active Protections"
+          value={[
+            data.controls.admin_2fa_enabled,
+            data.controls.root_admin_protected,
+            data.controls.ip_blocking_enabled,
+            data.controls.rate_limiting_enabled,
+            data.controls.rbac_enabled,
+            data.controls.audit_logging_enabled,
+          ].filter(Boolean).length}
+          icon={<Shield className="h-4 w-4" />}
+        />
+        <StatCard label="Open Security Findings" value={data.metrics.open_critical_alerts} icon={<AlertCircle className="h-4 w-4" />} />
+        <StatCard label="Admin 2FA Coverage" value={data.admin_2fa.enabled ? "Enabled" : "Missing"} icon={<Lock className="h-4 w-4" />} />
+      </div>
+
       {/* Security Controls */}
       <SectionHeader title="Security Controls" description="Status of platform security controls and protections." />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -221,42 +326,42 @@ export function SecurityCenterPage() {
           icon={ShieldCheck}
           title="Admin 2FA"
           status={data.controls.admin_2fa_enabled ? "Enabled" : "Disabled"}
-          statusColor={data.controls.admin_2fa_enabled ? "text-emerald-400" : "text-red-400"}
+          statusTone={controlTone(data.controls.admin_2fa_enabled)}
           description="Additional verification for administrator logins."
         />
         <SecurityControlCard
           icon={Shield}
           title="Root Admin Protection"
           status={data.controls.root_admin_protected ? "Protected" : "Unprotected"}
-          statusColor={data.controls.root_admin_protected ? "text-emerald-400" : "text-amber-400"}
+          statusTone={data.controls.root_admin_protected ? "safe" : "warning"}
           description="Prevents deletion, deactivation, or privilege downgrade of the primary admin."
         />
         <SecurityControlCard
           icon={Ban}
           title="IP Blocking"
           status={data.controls.ip_blocking_enabled ? "Active" : "Inactive"}
-          statusColor={data.controls.ip_blocking_enabled ? "text-emerald-400" : "text-red-400"}
+          statusTone={controlTone(data.controls.ip_blocking_enabled)}
           description="Allows defensive blocking of suspicious source IPs."
         />
         <SecurityControlCard
           icon={Clock}
           title="Rate Limiting"
           status={data.controls.rate_limiting_enabled ? "Enabled" : "Disabled"}
-          statusColor={data.controls.rate_limiting_enabled ? "text-emerald-400" : "text-red-400"}
+          statusTone={controlTone(data.controls.rate_limiting_enabled)}
           description="Reduces brute-force login attempts."
         />
         <SecurityControlCard
           icon={Users}
           title="RBAC"
           status={data.controls.rbac_enabled ? "Active" : "Inactive"}
-          statusColor={data.controls.rbac_enabled ? "text-emerald-400" : "text-red-400"}
+          statusTone={controlTone(data.controls.rbac_enabled)}
           description="Enforces role-based permissions across the platform."
         />
         <SecurityControlCard
           icon={Database}
           title="Audit Logging"
           status={data.controls.audit_logging_enabled ? "Active" : "Inactive"}
-          statusColor={data.controls.audit_logging_enabled ? "text-emerald-400" : "text-red-400"}
+          statusTone={controlTone(data.controls.audit_logging_enabled)}
           description="Tracks security-relevant actions for investigation and accountability."
         />
       </div>
@@ -290,7 +395,7 @@ export function SecurityCenterPage() {
           title="Sensitive Actions Today"
           value={data.metrics.sensitive_actions_today}
           description="Security-sensitive administrative actions today."
-          valueColor="text-purple-400"
+          valueColor="text-cyan-300"
         />
         <MetricCard
           icon={AlertCircle}
@@ -317,18 +422,16 @@ export function SecurityCenterPage() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-slate-300">Status</span>
-                <span className={`font-semibold ${data.admin_2fa.enabled ? "text-emerald-400" : "text-red-400"}`}>
-                  {data.admin_2fa.enabled ? "Enabled" : "Disabled"}
-                </span>
+                <Chip tone={data.admin_2fa.enabled ? "safe" : "critical"}>{data.admin_2fa.enabled ? "Enabled" : "Disabled"}</Chip>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-300">Method</span>
-                <span className="text-cyan-400">{data.admin_2fa.method}</span>
+                <Chip tone="info">{data.admin_2fa.method}</Chip>
               </div>
               {data.admin_2fa.security_email_masked && (
                 <div className="flex items-center justify-between">
                   <span className="text-slate-300">Security Email</span>
-                  <span className="text-cyan-400">{data.admin_2fa.security_email_masked}</span>
+                  <span className="text-cyan-400 text-sm">{data.admin_2fa.security_email_masked}</span>
                 </div>
               )}
             </div>
@@ -357,8 +460,8 @@ export function SecurityCenterPage() {
       <SectionHeader title="Recent Security Events" description="Latest security-relevant activities from audit logs." />
       <div className="soc-panel p-6">
         {data.recent_events.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="soc-table">
+          <div className="table-wrapper">
+            <table className="soc-table tbl">
               <thead>
                 <tr>
                   <th>Time</th>
@@ -366,7 +469,7 @@ export function SecurityCenterPage() {
                   <th>Actor</th>
                   <th>IP Address</th>
                   <th>Entity</th>
-                  <th>Summary</th>
+                  <th className="col-hide-mobile">Summary</th>
                 </tr>
               </thead>
               <tbody>
@@ -374,14 +477,14 @@ export function SecurityCenterPage() {
                   <tr key={event.id}>
                     <td className="text-slate-400">{formatDateTime(event.created_at)}</td>
                     <td>
-                      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium ${getActionBadgeColor(event.action)}`}>
+                      <Chip tone={event.action.includes("failed") || event.action.includes("blocked") ? "critical" : event.action.includes("updated") ? "warning" : "info"}>
                         {event.action.replace(/_/g, " ")}
-                      </span>
+                      </Chip>
                     </td>
                     <td className="text-slate-300">{event.actor || "System"}</td>
                     <td className="text-slate-300">{event.ip_address || "N/A"}</td>
                     <td className="text-slate-300">{event.entity_type || "N/A"}</td>
-                    <td className="text-slate-300">{event.summary}</td>
+                    <td className="col-hide-mobile text-slate-300">{event.summary}</td>
                   </tr>
                 ))}
               </tbody>
@@ -399,12 +502,12 @@ export function SecurityCenterPage() {
       <SectionHeader title="Recent Blocked IPs" description="Currently active IP address blocks." />
       <div className="soc-panel p-6">
         {data.recent_blocked_ips.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="soc-table">
+          <div className="table-wrapper">
+            <table className="soc-table tbl">
               <thead>
                 <tr>
                   <th>IP Address</th>
-                  <th>Reason</th>
+                  <th className="col-hide-mobile">Reason</th>
                   <th>Source</th>
                   <th>Status</th>
                   <th>Created At</th>
@@ -415,24 +518,12 @@ export function SecurityCenterPage() {
                 {data.recent_blocked_ips.map((block) => (
                   <tr key={block.id}>
                     <td className="text-slate-300 font-mono">{block.ip_address}</td>
-                    <td className="text-slate-300">{block.reason || "No reason provided"}</td>
+                    <td className="col-hide-mobile text-slate-300">{block.reason || "No reason provided"}</td>
                     <td>
-                      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium ${
-                        block.source === "automatic" 
-                          ? "bg-amber-500/20 text-amber-300 border-amber-500/30"
-                          : "bg-blue-500/20 text-blue-300 border-blue-500/30"
-                      }`}>
-                        {block.source}
-                      </span>
+                      <Chip tone={block.source === "automatic" ? "warning" : "info"}>{block.source}</Chip>
                     </td>
                     <td>
-                      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium ${
-                        block.is_active 
-                          ? "bg-red-500/20 text-red-300 border-red-500/30"
-                          : "bg-slate-500/20 text-slate-300 border-slate-500/30"
-                      }`}>
-                        {block.is_active ? "Active" : "Inactive"}
-                      </span>
+                      <Chip tone={block.is_active ? "critical" : "neutral"}>{block.is_active ? "Active" : "Inactive"}</Chip>
                     </td>
                     <td className="text-slate-400">{formatDateTime(block.created_at)}</td>
                     <td className="text-slate-400">{block.expires_at ? formatDateTime(block.expires_at) : "Never"}</td>
@@ -473,6 +564,50 @@ export function SecurityCenterPage() {
           </div>
         ))}
       </div>
+
+      <AppModal isOpen={detailsOpen} onClose={() => setDetailsOpen(false)} size="lg" panelClassName="soc-panel-strong p-6">
+        <div className="space-y-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Security Center Details</p>
+            <h2 className="mt-1 text-xl font-black text-white">Platform Security Posture</h2>
+            <p className="mt-1 text-sm text-slate-400">Detailed control status, evidence, and recommended hardening actions from the current security center summary.</p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[
+              ["Admin 2FA", data.admin_2fa.enabled ? "Enabled" : "Disabled", "Additional verification for administrator logins."],
+              ["Root Admin Protection", data.controls.root_admin_protected ? "Protected" : "Unprotected", "Protects the primary administrator account from accidental lockout."],
+              ["IP Blocking", data.controls.ip_blocking_enabled ? "Active" : "Inactive", "Allows defensive blocking of suspicious source IPs."],
+              ["Rate Limiting", data.controls.rate_limiting_enabled ? "Enabled" : "Disabled", "Slows brute-force and repeated request abuse."],
+              ["RBAC", data.controls.rbac_enabled ? "Active" : "Inactive", "Enforces role-based access controls."],
+              ["Audit Logging", data.controls.audit_logging_enabled ? "Active" : "Inactive", "Preserves administrative and security evidence."],
+            ].map(([title, status, description]) => (
+              <div key={title} className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="font-semibold text-white">{title}</p>
+                  <Chip tone={["Enabled", "Protected", "Active"].includes(status) ? "safe" : "critical"}>{status}</Chip>
+                </div>
+                <p className="mt-2 text-sm text-slate-400">{description}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+            <h3 className="font-semibold text-white">Recommendations</h3>
+            {data.recommendations.length === 0 ? (
+              <p className="mt-2 text-sm text-slate-500">No recommendations currently available.</p>
+            ) : (
+              <ul className="mt-3 space-y-2 text-sm text-slate-300">
+                {data.recommendations.map(rec => (
+                  <li key={`${rec.level}-${rec.title}`}>
+                    <b className="text-white">{rec.title}</b>: {rec.description}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </AppModal>
     </div>
   );
 }
@@ -481,11 +616,11 @@ interface SecurityControlCardProps {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   status: string;
-  statusColor: string;
+  statusTone: "critical" | "warning" | "safe";
   description: string;
 }
 
-function SecurityControlCard({ icon: Icon, title, status, statusColor, description }: SecurityControlCardProps) {
+function SecurityControlCard({ icon: Icon, title, status, statusTone, description }: SecurityControlCardProps) {
   return (
     <div className="soc-panel p-6">
       <div className="flex items-start gap-4">
@@ -494,7 +629,7 @@ function SecurityControlCard({ icon: Icon, title, status, statusColor, descripti
         </div>
         <div className="flex-1">
           <h3 className="font-semibold text-white mb-1">{title}</h3>
-          <p className={`text-sm font-medium mb-2 ${statusColor}`}>{status}</p>
+          <div className="mb-2"><Chip tone={statusTone}>{status}</Chip></div>
           <p className="text-sm text-slate-300">{description}</p>
         </div>
       </div>

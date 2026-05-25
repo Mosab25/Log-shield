@@ -1,160 +1,156 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "react-router-dom";
 import { Database, ListFilter, ShieldAlert, Calendar, Search, X, Eye, AlertTriangle, Activity } from "lucide-react";
 import { apiClient } from "../api/client";
 import { LogsToolbar } from "../components/LogsToolbar";
 import { Pagination } from "../components/Pagination";
-import { SeverityBadge } from "../components/SeverityBadge";
-import { StatusBadge } from "../components/StatusBadge";
+import { Chip } from "../components/ui/Chip";
+import { RowActions } from "../components/ui/RowActions";
+import { BulkBar } from "../components/ui/BulkBar";
+import { FilterRow } from "../components/ui/FilterRow";
+import { PageHeader } from "../components/ui/PageHeader";
 import { EvidenceExplanation, InfoHint, RecommendedActions } from "../components/Guidance";
-import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
+import { AppModal } from "../components/ui/AppModal";
+import { EmptyState, ErrorState, SkeletonRows } from "../components/UI";
 import { deriveAttackSignalFromText } from "../securitySignals";
 import { debounce } from "../utils/debounce";
 
+type LogFilters = {
+  eventType: string;
+  category: string;
+  severity: string;
+  source: string;
+  ipAddress: string;
+  username: string;
+  endpoint: string;
+  startDate: string;
+  endDate: string;
+};
+
+function getInitialTab(searchParams: URLSearchParams): "raw" | "normalized" {
+  if (searchParams.get("tab") === "normalized") return "normalized";
+  if (searchParams.has("event_type") || searchParams.has("type") || searchParams.has("severity")) return "normalized";
+  return "raw";
+}
+
+function getInitialFilters(searchParams: URLSearchParams): LogFilters {
+  const legacyType = searchParams.get("type");
+  return {
+    eventType: searchParams.get("event_type") || (legacyType === "auth_failure" ? "failed_login" : ""),
+    category: searchParams.get("category") || "",
+    severity: searchParams.get("severity") || "",
+    source: searchParams.get("source") || "",
+    ipAddress: searchParams.get("ip_address") || searchParams.get("ip") || "",
+    username: searchParams.get("username") || searchParams.get("user") || "",
+    endpoint: searchParams.get("endpoint") || "",
+    startDate: "",
+    endDate: "",
+  };
+}
+
+function buildLogsUrl(tab: "raw" | "normalized", page: number, pageSize: number, search: string, filters: LogFilters) {
+  const skip = (page - 1) * pageSize;
+  let url = tab === "raw" ? `/logs/raw?skip=${skip}&limit=${pageSize}` : `/logs/normalized?skip=${skip}&limit=${pageSize}`;
+
+  if (tab !== "normalized") return url;
+
+  const params = new URLSearchParams();
+  if (filters.eventType) params.set("event_type", filters.eventType);
+  if (filters.category) params.set("category", filters.category);
+  if (filters.severity) params.set("severity", filters.severity);
+  if (filters.source) params.set("source", filters.source);
+  if (filters.ipAddress) params.set("ip_address", filters.ipAddress);
+  if (filters.username) params.set("username", filters.username);
+  if (filters.endpoint) params.set("endpoint", filters.endpoint);
+  if (search) params.set("q", search);
+  if (filters.startDate) params.set("start_date", new Date(filters.startDate).toISOString());
+  if (filters.endDate) {
+    const endDate = new Date(filters.endDate);
+    endDate.setHours(23, 59, 59, 999);
+    params.set("end_date", endDate.toISOString());
+  }
+
+  const serialized = params.toString();
+  return serialized ? `${url}&${serialized}` : url;
+}
+
+function summarizeNormalizedLogs(items: any[]) {
+  let scriptAttackCount = 0;
+  let failedLogins = 0;
+  let webErrors = 0;
+  let suspiciousEvents = 0;
+  let highCritical = 0;
+
+  for (const item of items) {
+    if (deriveAttackSignalFromText(item.message, item.raw_message, item.endpoint, item.path, item.user_agent).isAttack) {
+      scriptAttackCount++;
+    }
+    if (item.event_type === "failed_login") failedLogins++;
+    if (item.event_type === "http_404" || item.status_code >= 500) webErrors++;
+    if (item.category === "attack" || item.category === "reconnaissance") suspiciousEvents++;
+    if (item.severity === "high" || item.severity === "critical") highCritical++;
+  }
+
+  return {
+    total: items.length,
+    failedLogins,
+    webErrors,
+    suspiciousEvents,
+    highCritical,
+    scriptAttacks: scriptAttackCount,
+  };
+}
+
 export function LogsPage() {
-  const [tab, setTab] = useState<"raw" | "normalized">("raw");
-  const [items, setItems] = useState<any[]>([]);
-  const [total, setTotal] = useState(0);
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState<"raw" | "normalized">(() => getInitialTab(searchParams));
   const [page, setPage] = useState(1);
-  const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState(() => searchParams.get("q") || "");
+  const [searchInput, setSearchInput] = useState(() => searchParams.get("q") || "");
   const [actionId, setActionId] = useState<number | null>(null);
   const pageSize = 25; // Increased from 10 for better UX
   
   // Enhanced filters state with debounced search
-  const [filters, setFilters] = useState({
-    eventType: "",
-    category: "",
-    severity: "",
-    source: "",
-    ipAddress: "",
-    username: "",
-    endpoint: "",
-    startDate: "",
-    endDate: ""
-  });
+  const [filters, setFilters] = useState<LogFilters>(() => getInitialFilters(searchParams));
   const [showFilters, setShowFilters] = useState(false);
   const [selectedLog, setSelectedLog] = useState<any | null>(null);
-  const [metadata, setMetadata] = useState<any>(null);
-  const [summary, setSummary] = useState<any>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const debouncedApplySearch = useMemo(() => debounce((value: string) => {
+    setSearch(value.trim());
+    setPage(1);
+  }, 400), []);
+  const logsUrl = useMemo(() => buildLogsUrl(tab, page, pageSize, search, filters), [filters, page, pageSize, search, tab]);
+  const logsQuery = useQuery({
+    queryKey: ["logs", tab, page, search, filters],
+    queryFn: () => apiClient.get<any>(logsUrl),
+  });
+  const metadataQuery = useQuery({
+    queryKey: ["logs", "normalized", "metadata"],
+    queryFn: () => apiClient.get<any>("/logs/normalized/metadata"),
+    enabled: tab === "normalized",
+  });
 
-  // Debounced search to prevent API calls on every keystroke
-  const debouncedSearch = useMemo(() => {
-    return debounce((searchTerm: string) => {
-      setSearch(searchTerm);
-      setPage(1); // Reset to first page on search
-    }, 400);
-  }, []);
-  
-  // Debounced filter changes
-  const debouncedFilterChange = useMemo(() => {
-    return debounce((newFilters: typeof filters) => {
-      setFilters(newFilters);
-      setPage(1); // Reset to first page on filter change
-    }, 300);
-  }, []);
-  
-  // Abort controller for stale requests
-  const abortControllerRef = useRef<AbortController | null>(null);
-  
-  async function load() {
-    // Cancel previous request if still pending
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    abortControllerRef.current = new AbortController();
-    setLoading(true);
-    setError(null);
-    try {
-      const skip = (page - 1) * pageSize;
-      let url = tab === "raw" ? `/logs/raw?skip=${skip}&limit=${pageSize}` : `/logs/normalized?skip=${skip}&limit=${pageSize}`;
-      
-      // Add filters for normalized logs
-      if (tab === "normalized") {
-        const params = new URLSearchParams();
-        if (filters.eventType) params.set("event_type", filters.eventType);
-        if (filters.category) params.set("category", filters.category);
-        if (filters.severity) params.set("severity", filters.severity);
-        if (filters.source) params.set("source", filters.source);
-        if (filters.ipAddress) params.set("ip_address", filters.ipAddress);
-        if (filters.username) params.set("username", filters.username);
-        if (filters.endpoint) params.set("endpoint", filters.endpoint);
-        if (search) params.set("q", search);
-        if (filters.startDate) params.set("start_date", new Date(filters.startDate).toISOString());
-        if (filters.endDate) {
-          const endDate = new Date(filters.endDate);
-          endDate.setHours(23, 59, 59, 999);
-          params.set("end_date", endDate.toISOString());
-        }
-        
-        if (params.toString()) {
-          url += `&${params.toString()}`;
-        }
-      }
-      
-      const res = await apiClient.get<any>(url);
-      setItems(Array.isArray(res.items) ? res.items : []);
-      setTotal(Number(res.total ?? 0));
-      
-      // Load metadata for normalized logs (cached)
-      if (tab === "normalized" && !metadata) {
-        try {
-          const meta = await apiClient.get("/logs/normalized/metadata");
-          setMetadata(meta);
-        } catch (e) {
-          // Metadata is optional
-        }
-      }
-      
-      // Calculate summary from current items (optimized)
-      if (tab === "normalized") {
-        const items = res.items || [];
-        let scriptAttackCount = 0;
-        let failedLogins = 0;
-        let webErrors = 0;
-        let suspiciousEvents = 0;
-        let highCritical = 0;
-        
-        // Single pass through items for better performance
-        for (const item of items) {
-          if (deriveAttackSignalFromText(item.message, item.raw_message, item.endpoint, item.path, item.user_agent).isAttack) {
-            scriptAttackCount++;
-          }
-          if (item.event_type === "failed_login") failedLogins++;
-          if (item.event_type === "http_404" || item.status_code >= 500) webErrors++;
-          if (item.category === "attack" || item.category === "reconnaissance") suspiciousEvents++;
-          if (item.severity === "high" || item.severity === "critical") highCritical++;
-        }
-        
-        const summaryData = {
-          total: items.length,
-          failedLogins,
-          webErrors,
-          suspiciousEvents,
-          highCritical,
-          scriptAttacks: scriptAttackCount,
-        };
-        setSummary(summaryData);
-      }
-      
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        setItems([]);
-        setTotal(0);
-        if (tab === "normalized" && Number(err?.status) >= 500) {
-          setError("Security Events service is temporarily unavailable (backend 5xx). Check backend runtime and database connectivity, then retry.");
-        } else {
-          setError(err?.message || "Failed to load logs.");
-        }
-      }
-    } finally {
-      setLoading(false);
-      abortControllerRef.current = null;
-    }
+  const items: any[] = Array.isArray(logsQuery.data?.items) ? logsQuery.data.items : [];
+  const total = Number(logsQuery.data?.total ?? 0);
+  const loading = logsQuery.isLoading;
+  const metadata = metadataQuery.data;
+  const summary = useMemo(() => (tab === "normalized" ? summarizeNormalizedLogs(items) : null), [items, tab]);
+  const error = logsQuery.error instanceof Error
+    ? tab === "normalized" && Number((logsQuery.error as any)?.status) >= 500
+      ? "Security Events service is temporarily unavailable (backend 5xx). Check backend runtime and database connectivity, then retry."
+      : logsQuery.error.message
+    : null;
+
+  async function refreshLogs() {
+    apiClient.invalidateCache("/logs");
+    await logsQuery.refetch();
   }
 
-  useEffect(() => { void load(); }, [tab, page, search]); // Removed filters to use debounced version
+  function updateSearch(value: string) {
+    setSearchInput(value);
+    debouncedApplySearch(value);
+  }
 
   // Helper functions for event type mapping
   function getEventLabel(eventType?: string | null) {
@@ -178,11 +174,11 @@ export function LogsPage() {
 
   function getCategoryColor(category: string) {
     const colors: Record<string, string> = {
-      "authentication": "bg-blue-500/20 text-blue-300 border-blue-500/30",
+      "authentication": "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
       "attack": "bg-red-500/20 text-red-300 border-red-500/30",
       "reconnaissance": "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
-      "privilege": "bg-purple-500/20 text-purple-300 border-purple-500/30",
-      "system": "bg-orange-500/20 text-orange-300 border-orange-500/30",
+      "privilege": "bg-cyan-500/10 text-cyan-300 border-cyan-500/25",
+      "system": "bg-slate-500/10 text-slate-300 border-slate-500/25",
       "defense": "bg-green-500/20 text-green-300 border-green-500/30",
       "web": "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
       "normal": "bg-cyber-elevated/40 text-cyber-muted border-cyber-muted/25"
@@ -202,10 +198,13 @@ export function LogsPage() {
       startDate: "",
       endDate: ""
     });
+    setSearch("");
+    setSearchInput("");
     setPage(1);
   }
 
   function applyFilters() {
+    setSearch(searchInput.trim());
     setPage(1);
     setShowFilters(false);
   }
@@ -223,7 +222,8 @@ export function LogsPage() {
     setActionId(id);
     try {
       await apiClient.post(`/logs/normalize/${id}`);
-      await load();
+      apiClient.invalidateCache("/logs");
+      await logsQuery.refetch();
     } finally {
       setActionId(null);
     }
@@ -238,23 +238,58 @@ export function LogsPage() {
     }
   }
 
+  function exportSelectedLogs() {
+    if (!selectedIds.length) return;
+    const selectedItems = visible.filter(item => selectedIds.includes(item.id));
+    const blob = new Blob([JSON.stringify(selectedItems, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `logshield-logs-selected-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function copySelectedLogs() {
+    if (!selectedIds.length) return;
+    const selectedItems = visible.filter(item => selectedIds.includes(item.id));
+    const text = selectedItems.map(item => item.raw_message || item.message || JSON.stringify(item)).join("\n\n");
+    await navigator.clipboard.writeText(text);
+  }
+
+  function severityTone(value?: string) {
+    const s = String(value || "").toLowerCase();
+    if (s === "critical" || s === "error" || s === "high") return "critical" as const;
+    if (s === "warning" || s === "medium") return "warning" as const;
+    if (s === "info" || s === "low") return "info" as const;
+    return "neutral" as const;
+  }
+
+  function rowTint(value?: string) {
+    const s = String(value || "").toLowerCase();
+    if (s === "critical" || s === "error" || s === "high") return { backgroundColor: "rgba(255,59,59,0.03)" };
+    if (s === "warning" || s === "medium") return { backgroundColor: "rgba(245,158,11,0.03)" };
+    return undefined;
+  }
+
   function switchTab(next: "raw" | "normalized") {
     setTab(next);
     setPage(1);
-    setError(null);
+    setSelectedIds([]);
+    setSelectedLog(null);
   }
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Security Logs" title="Security Event Analysis" description="Monitor and analyze security events with enhanced SOC visibility and threat detection." icon={ShieldAlert} />
+      <PageHeader eyebrow="Security Logs" title="Security Event Analysis" description="Monitor and analyze security events with enhanced SOC visibility and threat detection." />
 
       <InfoHint title="How logs support investigations">
         Logs are raw or normalized security events. They are the evidence used to generate alerts, explain incidents, and prove what happened during an investigation.
       </InfoHint>
 
       <div className="flex flex-wrap gap-3">
-        <button onClick={() => switchTab("raw")} className={tab === "raw" ? "soc-button-primary" : "soc-button-ghost"}>Raw Logs</button>
-        <button onClick={() => switchTab("normalized")} className={tab === "normalized" ? "soc-button-primary" : "soc-button-ghost"}>Security Events</button>
+        <button type="button" onClick={() => switchTab("raw")} className={tab === "raw" ? "soc-button-primary" : "soc-button-ghost"}>Raw Logs</button>
+        <button type="button" onClick={() => switchTab("normalized")} className={tab === "normalized" ? "soc-button-primary" : "soc-button-ghost"}>Security Events</button>
       </div>
 
       {/* Summary Cards for Normalized Logs */}
@@ -276,7 +311,7 @@ export function LogsPage() {
           </div>
           <div className="soc-panel p-4">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-orange-400" />
+              <AlertTriangle className="h-5 w-5 text-amber-400" />
               <span className="text-xs font-bold uppercase text-cyber-muted">Web Errors</span>
             </div>
             <p className="mt-2 text-2xl font-black text-white">{summary.webErrors}</p>
@@ -297,7 +332,7 @@ export function LogsPage() {
           </div>
           <div className="soc-panel p-4">
             <div className="flex items-center gap-2">
-              <ShieldAlert className="h-5 w-5 text-fuchsia-300" />
+              <ShieldAlert className="h-5 w-5 text-red-300" />
               <span className="text-xs font-bold uppercase text-cyber-muted">Script Attacks</span>
             </div>
             <p className="mt-2 text-2xl font-black text-white">{summary.scriptAttacks}</p>
@@ -307,13 +342,13 @@ export function LogsPage() {
 
       {/* Enhanced Filters for Normalized Logs */}
       {tab === "normalized" && (
-        <div className="soc-panel p-4">
+        <FilterRow>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Search className="h-4 w-4 text-cyber-muted" />
               <span className="text-sm font-semibold text-white">Advanced Filters</span>
             </div>
-            <button onClick={() => setShowFilters(!showFilters)} className="soc-button-ghost px-3 py-1 text-xs">
+            <button type="button" onClick={() => setShowFilters(!showFilters)} className="soc-button-ghost px-3 py-1 text-xs">
               {showFilters ? "Hide" : "Show"} Filters
             </button>
           </div>
@@ -321,8 +356,8 @@ export function LogsPage() {
           {showFilters && (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
               <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
+                value={searchInput}
+                onChange={e => updateSearch(e.target.value)}
                 placeholder="Search logs..."
                 className="soc-input"
               />
@@ -352,31 +387,43 @@ export function LogsPage() {
                 className="soc-input"
               />
               <div className="flex gap-2 lg:col-span-2 xl:col-span-5">
-                <button onClick={applyFilters} className="soc-button-primary px-4 py-2 text-sm">Apply Filters</button>
-                <button onClick={resetFilters} className="soc-button-ghost px-4 py-2 text-sm">Reset</button>
+                <button type="button" onClick={applyFilters} className="soc-button-primary px-4 py-2 text-sm">Apply Filters</button>
+                <button type="button" onClick={resetFilters} className="soc-button-ghost px-4 py-2 text-sm">Reset</button>
               </div>
             </div>
           )}
-        </div>
+        </FilterRow>
       )}
 
-      <LogsToolbar search={search} setSearch={setSearch} reload={() => void load()} />
-      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      <LogsToolbar search={searchInput} setSearch={updateSearch} reload={() => void refreshLogs()} />
+      {error ? <ErrorState message={error} onRetry={() => void refreshLogs()} /> : null}
       {loading ? <SkeletonRows rows={6} /> : null}
 
       {!loading ? (
         <div className="soc-panel overflow-hidden">
+          <BulkBar
+            active={selectedIds.length > 0}
+            selectedCount={selectedIds.length}
+            actions={
+              <>
+                <button type="button" className="row-action" onClick={exportSelectedLogs}>Export Selected</button>
+                <button type="button" className="row-action" onClick={() => void copySelectedLogs()}>Copy Values</button>
+                <button type="button" className="row-action" onClick={() => setSelectedIds([])}>Clear</button>
+              </>
+            }
+          />
           {visible.length === 0 ? (
             <div className="p-5">
               <EmptyState title="No logs found" description={search ? "No records match the current search." : "No log records are available for this view yet."} icon={ListFilter} />
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="soc-table">
+            <div className="table-wrapper">
+              <table className="soc-table tbl">
                 <thead>
                   <tr>
                     {tab === "raw" ? (
                       <>
+                        <th />
                         <th>Time</th>
                         <th>Source</th>
                         <th>Message</th>
@@ -385,6 +432,7 @@ export function LogsPage() {
                       </>
                     ) : (
                       <>
+                        <th />
                         <th>Time</th>
                         <th>Event Type</th>
                         <th>Category</th>
@@ -403,13 +451,20 @@ export function LogsPage() {
                 </thead>
                 <tbody>
                   {visible.map((item: any) => (
-                    <tr key={item.id}>
+                    <tr key={item.id} style={rowTint(item.severity)}>
                       {tab === "raw" ? (
                         <>
                           {(() => {
                             const signal = deriveAttackSignalFromText(item.raw_message, item.source, item.source_type);
                             return (
                               <>
+                          <td>
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(item.id)}
+                              onChange={e => setSelectedIds(prev => (e.target.checked ? [...prev, item.id] : prev.filter(x => x !== item.id)))}
+                            />
+                          </td>
                           <td>
                             <p className="text-xs text-cyber-muted/60">{new Date(item.received_at || item.created_at).toLocaleString()}</p>
                           </td>
@@ -419,13 +474,11 @@ export function LogsPage() {
                           </td>
                           <td className="max-w-2xl text-cyber-muted">
                             <p className="line-clamp-2 text-sm">{item.raw_message}</p>
-                            {signal.isAttack ? <p className="mt-1 text-[11px] font-bold text-fuchsia-200">Attack: {signal.attackLabel}</p> : null}
+                            {signal.isAttack ? <p className="mt-1 text-[11px] font-bold text-red-200">Attack: {signal.attackLabel}</p> : null}
                           </td>
-                          <td><StatusBadge status={item.ingestion_status} /></td>
+                          <td><Chip tone="neutral">{item.ingestion_status || "unknown"}</Chip></td>
                           <td className="text-right">
-                            <button onClick={() => normalize(item.id)} disabled={actionId === item.id} className="soc-button-ghost whitespace-nowrap px-3 py-1.5 text-xs">
-                              {actionId === item.id ? "Normalizing..." : "Normalize"}
-                            </button>
+                            <RowActions items={[{ key: "normalize", label: actionId === item.id ? "Normalizing..." : "Normalize", onClick: () => normalize(item.id), disabled: actionId === item.id, variant: "primary" }, { key: "copy", label: "Copy", onClick: () => void navigator.clipboard.writeText(item.raw_message || "") }]} />
                           </td>
                               </>
                             );
@@ -438,6 +491,13 @@ export function LogsPage() {
                             return (
                               <>
                           <td>
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(item.id)}
+                              onChange={e => setSelectedIds(prev => (e.target.checked ? [...prev, item.id] : prev.filter(x => x !== item.id)))}
+                            />
+                          </td>
+                          <td>
                             <p className="text-xs text-cyber-muted/60">{new Date(item.timestamp || item.created_at).toLocaleString()}</p>
                           </td>
                           <td>
@@ -446,7 +506,7 @@ export function LogsPage() {
                                 {item.event_label || getEventLabel(item.event_type)}
                               </span>
                               {signal.isAttack ? (
-                                <span className="rounded-full border border-fuchsia-300/30 bg-fuchsia-500/15 px-2 py-0.5 text-xs font-bold text-fuchsia-200">
+                                <span className="rounded-full border border-red-300/30 bg-red-500/15 px-2 py-0.5 text-xs font-bold text-red-200">
                                   Attack: {signal.attackLabel}
                                 </span>
                               ) : null}
@@ -457,7 +517,7 @@ export function LogsPage() {
                               {item.category || 'unknown'}
                             </span>
                           </td>
-                          <td><SeverityBadge severity={item.severity} /></td>
+                          <td><Chip tone={severityTone(item.severity)}>{item.severity || "unknown"}</Chip></td>
                           <td>
                             <p className="text-sm text-cyber-muted">{item.source}</p>
                           </td>
@@ -480,14 +540,13 @@ export function LogsPage() {
                             <p className="line-clamp-2 text-sm">{item.message}</p>
                           </td>
                           <td className="text-right">
-                            <div className="flex gap-1">
-                              <button onClick={() => setSelectedLog(item)} className="soc-button-ghost whitespace-nowrap px-2 py-1 text-xs">
-                                <Eye className="h-3 w-3" />
-                              </button>
-                              <button onClick={() => detect(item.id)} disabled={actionId === item.id} className="soc-button-ghost whitespace-nowrap px-2 py-1 text-xs">
-                                {actionId === item.id ? "Running..." : "Detect"}
-                              </button>
-                            </div>
+                            <RowActions
+                              items={[
+                                { key: "view", label: "Investigate", variant: "primary", onClick: () => setSelectedLog(item) },
+                                { key: "detect", label: actionId === item.id ? "Running..." : "Detect", onClick: () => detect(item.id), disabled: actionId === item.id },
+                                { key: "copy", label: "Copy", onClick: () => void navigator.clipboard.writeText(item.message || "") },
+                              ]}
+                            />
                           </td>
                               </>
                             );
@@ -506,11 +565,11 @@ export function LogsPage() {
       
       {/* Log Details Drawer/Modal */}
       {selectedLog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-cyber-bg/80 px-4 backdrop-blur-sm">
-          <div className="soc-panel-strong max-h-[85vh] w-full max-w-4xl overflow-y-auto p-6">
+        <AppModal isOpen={Boolean(selectedLog)} onClose={() => setSelectedLog(null)} size="xl" panelClassName="soc-panel-strong p-6">
+          <div>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-black text-cyber-text">Security Event Details</h2>
-              <button onClick={() => setSelectedLog(null)} className="soc-button-ghost px-3 py-1">
+              <button type="button" onClick={() => setSelectedLog(null)} className="soc-button-ghost px-3 py-1">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -527,13 +586,11 @@ export function LogsPage() {
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-cyber-muted">Category:</span>
-                      <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${getCategoryColor(selectedLog.category || 'normal')}`}>
-                        {selectedLog.category || 'unknown'}
-                      </span>
+                      <Chip tone="info">{selectedLog.category || "unknown"}</Chip>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-cyber-muted">Severity:</span>
-                      <SeverityBadge severity={selectedLog.severity} />
+                      <Chip tone={severityTone(selectedLog.severity)}>{selectedLog.severity || "unknown"}</Chip>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-cyber-muted">Risk Score:</span>
@@ -621,15 +678,15 @@ export function LogsPage() {
             
             {/* Actions */}
             <div className="flex gap-3 pt-4 border-t border-slate-800">
-              <button onClick={() => detect(selectedLog.id)} disabled={actionId === selectedLog.id} className="soc-button-primary px-4 py-2 text-sm">
+              <button type="button" onClick={() => detect(selectedLog.id)} disabled={actionId === selectedLog.id} className="soc-button-primary px-4 py-2 text-sm">
                 {actionId === selectedLog.id ? "Running Detection..." : "Run Detection"}
               </button>
-              <button onClick={() => setSelectedLog(null)} className="soc-button-ghost px-4 py-2 text-sm">
+              <button type="button" onClick={() => setSelectedLog(null)} className="soc-button-ghost px-4 py-2 text-sm">
                 Close
               </button>
             </div>
           </div>
-        </div>
+        </AppModal>
       )}
     </div>
   );

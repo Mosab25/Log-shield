@@ -22,12 +22,14 @@ import {
   Trophy,
   Users,
   Wrench,
+  Globe,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import type { UserRole } from "./auth/AuthContext";
 
 export type NavigationSection =
+  | "USER PORTAL"
   | "OVERVIEW"
   | "MONITORING"
   | "ASSET & RISK"
@@ -47,6 +49,7 @@ export interface NavigationItem {
 }
 
 export const NAVIGATION_SECTIONS: NavigationSection[] = [
+  "USER PORTAL",
   "OVERVIEW",
   "MONITORING",
   "ASSET & RISK",
@@ -57,6 +60,60 @@ export const NAVIGATION_SECTIONS: NavigationSection[] = [
 ];
 
 export const navigationItems: NavigationItem[] = [
+  {
+    label: "My Security",
+    path: "/my-security",
+    icon: Shield,
+    section: "USER PORTAL",
+    roles: ["viewer"],
+    keywords: ["my security", "website owner", "overview"],
+    description: "User-friendly website security overview for owners.",
+  },
+  {
+    label: "Analyze Website",
+    path: "/tools",
+    icon: Wrench,
+    section: "USER PORTAL",
+    roles: ["viewer"],
+    keywords: ["analyze website", "website scanner", "security analyzer"],
+    description: "Run Website Security Analyzer and review security posture.",
+  },
+  {
+    label: "Scan History",
+    path: "/scan-history",
+    icon: ScrollText,
+    section: "USER PORTAL",
+    roles: ["viewer"],
+    keywords: ["scan history", "previous scans", "website history"],
+    description: "Track previous website scans and compare progress.",
+  },
+  {
+    label: "Recommendations",
+    path: "/recommendations",
+    icon: ListChecks,
+    section: "USER PORTAL",
+    roles: ["viewer"],
+    keywords: ["recommendations", "fix actions", "how to fix"],
+    description: "Prioritized action list generated from scan findings.",
+  },
+  {
+    label: "My Reports",
+    path: "/my-reports",
+    icon: FileText,
+    section: "USER PORTAL",
+    roles: ["viewer"],
+    keywords: ["my reports", "security report", "export"],
+    description: "View and export website security reports.",
+  },
+  {
+    label: "Connect Website",
+    path: "/connect-website",
+    icon: Globe,
+    section: "USER PORTAL",
+    roles: ["viewer"],
+    keywords: ["connect website", "integration", "connector"],
+    description: "Integration roadmap and onboarding guide for website owners.",
+  },
   {
     label: "Home",
     path: "/home",
@@ -74,6 +131,15 @@ export const navigationItems: NavigationItem[] = [
     roles: ["admin", "analyst"],
     keywords: ["dashboard", "overview", "metrics", "risk", "alerts"],
     description: "Overview of alerts, risk, logs, incidents, and activity.",
+  },
+  {
+    label: "Cinematic Demo",
+    path: "/demo",
+    icon: Activity,
+    section: "OVERVIEW",
+    roles: ["admin", "analyst"],
+    keywords: ["demo", "cinematic", "simulation", "soc demo"],
+    description: "Run the split-screen simulated website attack containment demo.",
   },
   {
     label: "Logs",

@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { Trophy, Medal, Award, Users, TrendingUp, Filter, Search, Download, Calendar } from "lucide-react";
-import { API_BASE_URL, apiClient, tokenStorage } from "../api/client";
+import { API_BASE_URL, apiClient, tokenStorage, toUserErrorMessage } from "../api/client";
 import { Pagination } from "../components/Pagination";
-import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
+import { Chip } from "../components/ui/Chip";
+import { FilterRow } from "../components/ui/FilterRow";
+import { PageHeader } from "../components/ui/PageHeader";
+import { EmptyState, ErrorState, SkeletonRows } from "../components/UI";
 
 interface LeaderboardEntry {
   rank: number;
@@ -59,7 +62,7 @@ export function LeaderboardPage() {
     } catch (err: any) {
       setLeaderboard([]);
       setTotal(0);
-      setError(err?.message || "Failed to load leaderboard.");
+      setError(toUserErrorMessage(err, "Leaderboard data is currently unavailable. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -106,7 +109,7 @@ export function LeaderboardPage() {
       link.remove();
       window.URL.revokeObjectURL(url2);
     } catch (err: any) {
-      setError(err?.message || "Failed to export data.");
+      setError(toUserErrorMessage(err, "Failed to export data."));
     }
   }
 
@@ -133,28 +136,27 @@ export function LeaderboardPage() {
   function getRankIcon(rank: number) {
     if (rank === 1) return <Trophy className="h-6 w-6 text-yellow-400" />;
     if (rank === 2) return <Medal className="h-6 w-6 text-gray-300" />;
-    if (rank === 3) return <Award className="h-6 w-6 text-orange-600" />;
+    if (rank === 3) return <Award className="h-6 w-6 text-amber-500" />;
     return <span className="text-lg font-bold text-slate-400">#{rank}</span>;
   }
 
   function getRankBadge(rank: number) {
     if (rank === 1) return "bg-yellow-500/20 text-yellow-300 border-yellow-500/30";
     if (rank === 2) return "bg-gray-500/20 text-gray-300 border-gray-500/30";
-    if (rank === 3) return "bg-orange-500/20 text-orange-300 border-orange-500/30";
+    if (rank === 3) return "bg-amber-500/20 text-amber-300 border-amber-500/30";
     return "bg-slate-500/20 text-slate-300 border-slate-500/30";
   }
 
   return (
     <div className="space-y-6">
       <PageHeader 
-        eyebrow="Performance Analytics" 
+        eyebrow="SECURITY AWARENESS" 
         title="Training Leaderboard" 
         description="Track top performers and analyze training effectiveness across your organization." 
-        icon={Trophy} 
       />
 
       {/* Filters */}
-      <div className="soc-panel p-4">
+      <FilterRow>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-slate-400" />
@@ -211,7 +213,7 @@ export function LeaderboardPage() {
             </div>
           </div>
         )}
-      </div>
+      </FilterRow>
 
       {error ? <ErrorState message={error} onRetry={() => void loadLeaderboard()} /> : null}
       {loading ? <SkeletonRows rows={10} /> : null}
@@ -234,6 +236,9 @@ export function LeaderboardPage() {
                       </div>
                       <h3 className="font-bold text-white text-lg mb-1">{entry.user_email}</h3>
                       <div className="space-y-1 text-sm">
+                        <div className="flex justify-center">
+                          <Chip tone={entry.rank === 1 ? "warning" : entry.rank === 2 ? "neutral" : "info"}>Top {entry.rank}</Chip>
+                        </div>
                         <p className="text-slate-300">Average: <span className="font-bold">{entry.average_percentage}%</span></p>
                         <p className="text-slate-300">Best: <span className="font-bold">{entry.best_percentage}%</span></p>
                         <p className="text-slate-300">Attempts: <span className="font-bold">{entry.attempts}</span></p>
@@ -244,17 +249,17 @@ export function LeaderboardPage() {
               )}
 
               {/* Full Leaderboard Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full">
+              <div className="table-wrapper">
+                <table className="tbl w-full">
                   <thead className="bg-slate-900/50">
                     <tr className="text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
                       <th className="px-6 py-3">Rank</th>
                       <th className="px-6 py-3">User</th>
-                      <th className="px-6 py-3">Attempts</th>
+                      <th className="col-hide-mobile px-6 py-3">Attempts</th>
                       <th className="px-6 py-3">Average Score</th>
-                      <th className="px-6 py-3">Best Score</th>
-                      <th className="px-6 py-3">Passed</th>
-                      <th className="px-6 py-3">Last Attempt</th>
+                      <th className="col-hide-mobile px-6 py-3">Best Score</th>
+                      <th className="col-hide-mobile px-6 py-3">Passed</th>
+                      <th className="col-hide-mobile px-6 py-3">Last Attempt</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800">
@@ -263,24 +268,25 @@ export function LeaderboardPage() {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             {getRankIcon(entry.rank)}
+                            <span className="ml-2"><Chip tone={entry.rank === 1 ? "warning" : entry.rank === 2 ? "neutral" : entry.rank === 3 ? "info" : "neutral"}>Rank {entry.rank}</Chip></span>
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-medium text-white">{entry.user_email}</div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="col-hide-mobile px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-slate-300">{entry.attempts}</div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="col-hide-mobile px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             <div className="text-sm font-bold text-white mr-2">{entry.average_percentage}%</div>
-                            <div className="w-16 bg-slate-800 rounded-full h-2">
+                            <div className="w-16 overflow-hidden bg-slate-800 rounded-full h-2">
                               <div 
-                                className={`h-2 rounded-full ${
+                                className={`h-2 w-full origin-left rounded-full ${
                                   entry.average_percentage >= 80 ? 'bg-green-500' :
                                   entry.average_percentage >= 60 ? 'bg-yellow-500' : 'bg-red-500'
                                 }`}
-                                style={{ width: `${entry.average_percentage}%` }}
+                                style={{ transform: `scaleX(${entry.average_percentage / 100})` }}
                               />
                             </div>
                           </div>
@@ -288,18 +294,18 @@ export function LeaderboardPage() {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center">
                             <div className="text-sm font-bold text-white mr-2">{entry.best_percentage}%</div>
-                            <div className="w-16 bg-slate-800 rounded-full h-2">
+                            <div className="w-16 overflow-hidden bg-slate-800 rounded-full h-2">
                               <div 
-                                className="bg-green-500 h-2 rounded-full"
-                                style={{ width: `${entry.best_percentage}%` }}
+                                className="h-2 w-full origin-left rounded-full bg-green-500"
+                                style={{ transform: `scaleX(${entry.best_percentage / 100})` }}
                               />
                             </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="col-hide-mobile px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-slate-300">{entry.passed_count}</div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
+                        <td className="col-hide-mobile px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center text-sm text-slate-300">
                             <Calendar className="h-4 w-4 mr-2" />
                             {new Date(entry.last_attempt_at).toLocaleDateString()}

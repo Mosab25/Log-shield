@@ -1,8 +1,8 @@
 export function AuditLogsTable({ logs, onOpenDetails }: { logs: any[]; onOpenDetails: (log: any) => void }) {
   return (
     <div className="soc-panel overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="soc-table">
+      <div className="table-wrapper">
+        <table className="soc-table tbl">
           <thead>
             <tr>
               <th>Timestamp</th>

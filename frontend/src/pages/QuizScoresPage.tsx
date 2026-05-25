@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search, Filter, Users, Award, TrendingUp, Calendar, Download, CheckCircle, AlertTriangle } from "lucide-react";
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { Pagination } from "../components/Pagination";
-import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
+import { BulkBar } from "../components/ui/BulkBar";
+import { Chip } from "../components/ui/Chip";
+import { FilterRow } from "../components/ui/FilterRow";
+import { PageHeader } from "../components/ui/PageHeader";
+import { RowActions } from "../components/ui/RowActions";
+import { EmptyState, ErrorState, SkeletonRows } from "../components/UI";
 
 interface QuizScore {
   id: number;
@@ -43,6 +48,7 @@ export function QuizScoresPage() {
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const pageSize = 20;
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
   async function loadScores() {
     setLoading(true);
@@ -69,7 +75,7 @@ export function QuizScoresPage() {
     } catch (err: any) {
       setScores([]);
       setTotal(0);
-      setError(err?.message || "Failed to load scores.");
+      setError(toUserErrorMessage(err, "Student scores are currently unavailable. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -140,14 +146,9 @@ export function QuizScoresPage() {
   }
 
   function getCategoryColor(category: string) {
-    const colors: Record<string, string> = {
-      "Security Fundamentals": "bg-blue-500/20 text-blue-300 border-blue-500/30",
-      "Network Security": "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
-      "Web Application Security": "bg-purple-500/20 text-purple-300 border-purple-500/30",
-      "SOC Operations": "bg-orange-500/20 text-orange-300 border-orange-500/30",
-      "Incident Response": "bg-red-500/20 text-red-300 border-red-500/30"
-    };
-    return colors[category] || "bg-slate-500/20 text-slate-300 border-slate-500/30";
+    return category
+      ? "bg-cyber-cyan/10 text-cyber-cyan border-cyber-cyan/25"
+      : "bg-slate-500/20 text-slate-300 border-slate-500/30";
   }
 
   // Calculate summary statistics
@@ -173,18 +174,17 @@ export function QuizScoresPage() {
   return (
     <div className="space-y-6">
       <PageHeader 
-        eyebrow="Quiz Analytics" 
-        title="Security Training Performance" 
-        description="Monitor and analyze cybersecurity training performance across all users." 
-        icon={TrendingUp} 
+        eyebrow="SECURITY AWARENESS" 
+        title="Student Scores" 
+        description="Make student score review professional and easy to act on." 
       />
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-4">
         <div className="soc-panel p-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center">
-              <Users className="h-6 w-6 text-blue-400" />
+            <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center">
+              <Users className="h-6 w-6 text-cyan-400" />
             </div>
             <div>
               <p className="text-sm text-slate-400">Total Attempts</p>
@@ -207,8 +207,8 @@ export function QuizScoresPage() {
         
         <div className="soc-panel p-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-purple-500/20 flex items-center justify-center">
-              <Award className="h-6 w-6 text-purple-400" />
+            <div className="w-12 h-12 rounded-full bg-cyan-500/20 flex items-center justify-center">
+              <Award className="h-6 w-6 text-cyan-400" />
             </div>
             <div>
               <p className="text-sm text-slate-400">Average Score</p>
@@ -233,7 +233,7 @@ export function QuizScoresPage() {
       </div>
 
       {/* Filters */}
-      <div className="soc-panel p-4">
+      <FilterRow>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-slate-400" />
@@ -284,13 +284,23 @@ export function QuizScoresPage() {
             </div>
           </div>
         )}
-      </div>
+      </FilterRow>
 
       {error ? <ErrorState message={error} onRetry={() => void loadScores()} /> : null}
       {loading ? <SkeletonRows rows={10} /> : null}
 
       {!loading ? (
         <div className="soc-panel overflow-hidden">
+          <BulkBar
+            active={selectedIds.length > 0}
+            selectedCount={selectedIds.length}
+            actions={
+              <>
+                <button type="button" className="row-action">Export Selected</button>
+                <button type="button" className="row-action" onClick={() => setSelectedIds([])}>Clear</button>
+              </>
+            }
+          />
           {visible.length === 0 ? (
             <div className="p-5">
               <EmptyState title="No scores found" description={search ? "No scores match the current search." : "No quiz attempts have been recorded yet."} icon={Award} />
@@ -301,18 +311,26 @@ export function QuizScoresPage() {
                 <table className="soc-table">
                   <thead>
                     <tr>
+                      <th />
                       <th>User</th>
                       <th>Quiz</th>
-                      <th>Category</th>
-                      <th>Type</th>
                       <th>Score</th>
-                      <th>Result</th>
-                      <th>Date</th>
+                      <th>Status</th>
+                      <th>Attempts</th>
+                      <th>Last Attempt</th>
+                      <th>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {visible.map((score) => (
-                      <tr key={score.id}>
+                      <tr key={score.id} style={score.percentage < 60 ? { backgroundColor: "rgba(255,59,59,0.03)" } : score.percentage < 80 ? { backgroundColor: "rgba(245,158,11,0.03)" } : undefined}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.includes(score.id)}
+                            onChange={event => setSelectedIds(prev => event.target.checked ? [...prev, score.id] : prev.filter(id => id !== score.id))}
+                          />
+                        </td>
                         <td>
                           <div>
                             <p className="font-semibold text-white">{score.user_full_name}</p>
@@ -322,38 +340,21 @@ export function QuizScoresPage() {
                         <td>
                           <div>
                             <p className="font-semibold text-white">{score.quiz_title}</p>
-                            <p className="text-xs text-slate-500">Quiz ID: {score.quiz_id}</p>
+                            <p className="text-xs text-slate-500">{score.quiz_category}</p>
                           </div>
-                        </td>
-                        <td>
-                          <span className={`rounded-full border px-2 py-1 text-xs font-bold ${getCategoryColor(score.quiz_category)}`}>
-                            {score.quiz_category}
-                          </span>
-                        </td>
-                        <td>
-                          <span className="rounded-full border border-slate-700 px-2 py-1 text-xs font-bold text-slate-300">
-                            {score.quiz_type}
-                          </span>
                         </td>
                         <td>
                           <div className="text-center">
                             <p className="font-bold text-white">{score.score}/{score.total_questions}</p>
-                            <p className="text-sm text-slate-400">{score.percentage}%</p>
+                            <Chip tone={score.percentage >= 80 ? "safe" : score.percentage >= 60 ? "warning" : "critical"}>{score.percentage}%</Chip>
                           </div>
                         </td>
                         <td>
                           <div className="flex items-center justify-center">
-                            {score.passed ? (
-                              <div title="Passed">
-                                <CheckCircle className="h-5 w-5 text-green-400" />
-                              </div>
-                            ) : (
-                              <div title="Failed">
-                                <AlertTriangle className="h-5 w-5 text-red-400" />
-                              </div>
-                            )}
+                            <Chip tone={score.passed ? "safe" : "critical"}>{score.passed ? "Passed" : "Needs Review"}</Chip>
                           </div>
                         </td>
+                        <td className="text-slate-300">1</td>
                         <td>
                           <div className="flex items-center gap-2">
                             <Calendar className="h-4 w-4 text-slate-400" />
@@ -361,6 +362,14 @@ export function QuizScoresPage() {
                               {new Date(score.submitted_at).toLocaleDateString()}
                             </span>
                           </div>
+                        </td>
+                        <td>
+                          <RowActions
+                            items={[
+                              { key: "view", label: "View Details", variant: "primary" },
+                              { key: "export", label: "Export Student" },
+                            ]}
+                          />
                         </td>
                       </tr>
                     ))}

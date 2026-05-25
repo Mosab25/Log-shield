@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { ShieldAlert, Plus, Search, X } from "lucide-react";
@@ -6,12 +6,14 @@ import { apiClient } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Pagination } from "../components/Pagination";
 import { SeverityBadge } from "../components/SeverityBadge";
+import { AppModal } from "../components/ui/AppModal";
 import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
+import { debounce } from "../utils/debounce";
 
 const TYPE_COLORS: Record<string, string> = {
   vulnerability: "bg-red-500/20 text-red-300 border-red-500/30",
-  attack_pattern: "bg-orange-500/20 text-orange-300 border-orange-500/30",
-  cve: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+  attack_pattern: "bg-cyan-500/10 text-cyan-300 border-cyan-500/25",
+  cve: "bg-slate-500/10 text-slate-300 border-slate-500/25",
   mitre_technique: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
   ioc: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
 };
@@ -44,9 +46,70 @@ function EntryStatusBadge({ status }: { status: string }) {
   return <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold ${color}`}>{label}</span>;
 }
 
+const PUBLIC_THREAT_ENTRIES = [
+  {
+    id: "public-brute-force",
+    title: "Credential Attack / Brute Force",
+    type: "attack_pattern",
+    severity: "high",
+    status: "approved",
+    category: "Authentication Abuse",
+    source: "LogShield demo library",
+    indicator_count: 4,
+    cve_id: null,
+    cvss_score: null,
+    mitre_tactic: "Credential Access",
+    mitre_technique: "T1110 - Brute Force",
+    tags: [{ id: "auth", name: "authentication" }, { id: "soc", name: "soc-triage" }],
+  },
+  {
+    id: "public-sql-injection",
+    title: "Web Attack / SQL Injection Pattern",
+    type: "attack_pattern",
+    severity: "critical",
+    status: "approved",
+    category: "Web Application Security",
+    source: "LogShield demo library",
+    indicator_count: 6,
+    cve_id: null,
+    cvss_score: null,
+    mitre_tactic: "Initial Access",
+    mitre_technique: "T1190 - Exploit Public-Facing Application",
+    tags: [{ id: "web", name: "web" }, { id: "injection", name: "injection" }],
+  },
+  {
+    id: "public-malicious-url",
+    title: "Malicious URL Reputation Hit",
+    type: "ioc",
+    severity: "medium",
+    status: "approved",
+    category: "Threat Intelligence",
+    source: "LogShield demo library",
+    indicator_count: 3,
+    cve_id: null,
+    cvss_score: null,
+    mitre_tactic: "Initial Access",
+    mitre_technique: "T1566 - Phishing",
+    tags: [{ id: "url", name: "url" }, { id: "phishing", name: "phishing" }],
+  },
+];
+
+function filterPublicThreatEntries(entries: typeof PUBLIC_THREAT_ENTRIES, filters: { type: string; severity: string; search: string }) {
+  const q = filters.search.trim().toLowerCase();
+  return entries.filter(entry => {
+    if (filters.type && entry.type !== filters.type) return false;
+    if (filters.severity && entry.severity !== filters.severity) return false;
+    if (!q) return true;
+    return [entry.title, entry.category, entry.source, entry.mitre_tactic, entry.mitre_technique, ...entry.tags.map(tag => tag.name)]
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+}
+
 export function ThreatsPage({ embedded = false }: { embedded?: boolean }) {
-  const { role } = useAuth();
-  const canManageThreats = role === "admin" || role === "analyst";
+  const { role, isAuthenticated, isLoading: authLoading } = useAuth();
+  const canManageThreats = isAuthenticated && (role === "admin" || role === "analyst");
   const [threats, setThreats] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -54,14 +117,36 @@ export function ThreatsPage({ embedded = false }: { embedded?: boolean }) {
   const [severityFilter, setSeverityFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const pageSize = 10;
+  const debouncedApplySearch = useMemo(
+    () =>
+      debounce((value: string) => {
+        setSearch(value.trim());
+        setPage(1);
+      }, 300),
+    [],
+  );
 
   async function load() {
+    if (authLoading) return;
     setLoading(true);
     setError(null);
+    if (!isAuthenticated) {
+      const filtered = filterPublicThreatEntries(PUBLIC_THREAT_ENTRIES, {
+        type: typeFilter,
+        severity: severityFilter,
+        search,
+      });
+      setThreats(filtered);
+      setTotal(filtered.length);
+      setLoading(false);
+      return;
+    }
+
     try {
       const p = new URLSearchParams({ skip: String((page - 1) * pageSize), limit: String(pageSize) });
       if (typeFilter) p.set("type", typeFilter);
@@ -80,7 +165,7 @@ export function ThreatsPage({ embedded = false }: { embedded?: boolean }) {
     }
   }
 
-  useEffect(() => { void load(); }, [page, typeFilter, severityFilter, statusFilter, search]);
+  useEffect(() => { void load(); }, [page, typeFilter, severityFilter, statusFilter, search, isAuthenticated, authLoading]);
 
   return (
     <div className="space-y-6">
@@ -106,7 +191,16 @@ export function ThreatsPage({ embedded = false }: { embedded?: boolean }) {
         <div className="grid gap-3 xl:grid-cols-[1fr_12rem_12rem_12rem]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-500" />
-            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} placeholder="Search threats..." className="soc-input w-full pl-10" />
+            <input
+              value={searchInput}
+              onChange={e => {
+                const next = e.target.value;
+                setSearchInput(next);
+                debouncedApplySearch(next);
+              }}
+              placeholder="Search threats..."
+              className="soc-input w-full pl-10"
+            />
           </div>
           <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1); }} className="soc-input"><option value="">All types</option><option value="vulnerability">Vulnerability</option><option value="attack_pattern">Attack Pattern</option><option value="cve">CVE</option><option value="mitre_technique">MITRE Technique</option><option value="ioc">IOC</option></select>
           <select value={severityFilter} onChange={e => { setSeverityFilter(e.target.value); setPage(1); }} className="soc-input"><option value="">All severities</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="critical">Critical</option></select>
@@ -141,7 +235,13 @@ export function ThreatsPage({ embedded = false }: { embedded?: boolean }) {
                       <td><SeverityBadge severity={t.severity} /></td>
                       <td className="text-sm text-slate-400">{t.cve_id ?? "N/A"}</td>
                       <td className="text-sm text-slate-400">{t.cvss_score ?? "N/A"}</td>
-                      <td><Link className="font-semibold text-cyan-200 hover:text-white" to={`/threats/${t.id}`}>Open</Link></td>
+                      <td>
+                        {isAuthenticated ? (
+                          <Link className="font-semibold text-cyan-200 hover:text-white" to={`/threats/${t.id}`}>Open</Link>
+                        ) : (
+                          <span className="text-sm font-semibold text-slate-500">Public preview</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -196,8 +296,8 @@ function CreateThreatModal({ onClose, onCreated }: { onClose: () => void; onCrea
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="soc-panel-strong max-h-[90vh] w-full max-w-2xl overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+    <AppModal isOpen onClose={onClose} size="md" closeOnOverlayClick overlayClassName="bg-black/70 p-4" panelClassName="soc-panel-strong max-h-[90vh] p-6">
+      <div>
         <div className="mb-4 flex items-center justify-between"><h2 className="text-xl font-black text-white">New Threat Entry</h2><button onClick={onClose} className="soc-button-ghost h-9 w-9 px-0"><X className="h-5 w-5" /></button></div>
         {error ? <div className="mb-3 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200">{error}</div> : null}
         <form onSubmit={submit} className="space-y-3">
@@ -223,6 +323,6 @@ function CreateThreatModal({ onClose, onCreated }: { onClose: () => void; onCrea
           <button type="submit" disabled={submitting} className="soc-button-primary w-full py-3">{submitting ? "Creating..." : "Create Threat Entry"}</button>
         </form>
       </div>
-    </div>
+    </AppModal>
   );
 }

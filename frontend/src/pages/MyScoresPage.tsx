@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { Award, BookOpen, CheckCircle, RefreshCw, TrendingUp, XCircle } from "lucide-react";
 
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
+import { Chip } from "../components/ui/Chip";
+import { PageHeader } from "../components/ui/PageHeader";
+import { RowActions } from "../components/ui/RowActions";
+import { StatCard } from "../components/ui/StatCard";
 import { InfoHint, RecommendedActions } from "../components/Guidance";
-import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
+import { EmptyState, ErrorState, SkeletonRows } from "../components/UI";
 
 interface UserAttempt {
   id: number;
@@ -41,7 +45,7 @@ export function MyScoresPage() {
       setItems(Array.isArray(response.items) ? response.items : []);
     } catch (err: any) {
       setItems([]);
-      setError(err?.message || "Failed to load your scores.");
+      setError(toUserErrorMessage(err, "Training scores are currently unavailable. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -59,10 +63,9 @@ export function MyScoresPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Security Awareness"
+        eyebrow="SECURITY AWARENESS"
         title="My Scores"
         description="Review your quiz attempts, understand weak areas, and continue building SOC investigation knowledge."
-        icon={Award}
         actions={
           <button type="button" onClick={() => void load()} className="soc-button-ghost">
             <RefreshCw className="h-4 w-4" />
@@ -75,19 +78,11 @@ export function MyScoresPage() {
         Scores show what you already understand and where to focus next. Review failed questions inside each quiz result, then retake related modules after studying the explanations.
       </InfoHint>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="soc-panel p-5">
-          <p className="text-xs font-black uppercase text-slate-500">Attempts</p>
-          <p className="mt-2 text-3xl font-black text-white">{items.length}</p>
-        </div>
-        <div className="soc-panel p-5">
-          <p className="text-xs font-black uppercase text-slate-500">Passed</p>
-          <p className="mt-2 text-3xl font-black text-emerald-300">{passed}</p>
-        </div>
-        <div className="soc-panel p-5">
-          <p className="text-xs font-black uppercase text-slate-500">Average</p>
-          <p className="mt-2 text-3xl font-black text-cyan-200">{average}%</p>
-        </div>
+      <div className="grid gap-4 md:grid-cols-4">
+        <StatCard label="Completed Quizzes" value={items.length} icon={<BookOpen className="h-4 w-4" />} />
+        <StatCard label="Passed" value={<span className="text-[var(--status-safe)]">{passed}</span>} icon={<CheckCircle className="h-4 w-4" />} />
+        <StatCard label="Needs Review" value={<span className="text-[var(--status-critical)]">{Math.max(0, items.length - passed)}</span>} icon={<XCircle className="h-4 w-4" />} />
+        <StatCard label="Average Score" value={<span className="text-[var(--brand)]">{average}%</span>} icon={<TrendingUp className="h-4 w-4" />} />
       </div>
 
       <RecommendedActions
@@ -115,10 +110,10 @@ export function MyScoresPage() {
                 <thead>
                   <tr>
                     <th>Quiz</th>
-                    <th>Category</th>
                     <th>Score</th>
-                    <th>Result</th>
-                    <th>Submitted</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -128,21 +123,25 @@ export function MyScoresPage() {
                         <p className="font-semibold text-white">{item.quiz_title}</p>
                         <p className="text-xs text-slate-500">{item.quiz_type}</p>
                       </td>
-                      <td className="text-slate-300">{item.quiz_category}</td>
                       <td>
                         <div className="flex items-center gap-2">
                           <TrendingUp className="h-4 w-4 text-cyan-200" />
                           <span className="font-bold text-white">{item.score}/{item.total_questions}</span>
-                          <span className="text-slate-400">({item.percentage}%)</span>
+                          <Chip tone={item.percentage >= 80 ? "safe" : item.percentage >= 60 ? "warning" : "critical"}>{item.percentage}%</Chip>
                         </div>
                       </td>
                       <td>
-                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-bold ${item.passed ? "border-emerald-300/30 bg-emerald-400/10 text-emerald-200" : "border-red-300/30 bg-red-400/10 text-red-200"}`}>
-                          {item.passed ? <CheckCircle className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
-                          {item.passed ? "Passed" : "Needs review"}
-                        </span>
+                        <Chip tone={item.passed ? "safe" : "critical"}>{item.passed ? "Passed" : "Needs Review"}</Chip>
                       </td>
                       <td className="text-slate-400">{formatDate(item.submitted_at)}</td>
+                      <td>
+                        <RowActions
+                          items={[
+                            { key: "review", label: "Review", variant: "primary" },
+                            ...(item.passed ? [] : [{ key: "retake", label: "Retake" }]),
+                          ]}
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>

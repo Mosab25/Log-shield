@@ -3,6 +3,9 @@ import { ArrowLeft, Briefcase, Link2, MessageSquare, Paperclip, RefreshCw, Shiel
 import { Link, useParams } from "react-router-dom";
 
 import { apiClient } from "../api/client";
+import { generateReportDraft, summarizeIncident, type AiAnalysisResult } from "../api/aiAnalysis";
+import { AiInsightCard } from "../components/ai/AiInsightCard";
+import { AiReportDraft } from "../components/ai/AiReportDraft";
 import { useAuth } from "../auth/AuthContext";
 import { EvidenceExplanation, InfoHint, RecommendedActions } from "../components/Guidance";
 import { EmptyState, ErrorState, PageHeader, SectionHeader, SkeletonBlock } from "../components/UI";
@@ -107,7 +110,7 @@ function severityClass(severity: string): string {
     case "critical":
       return "border-red-400/35 bg-red-500/12 text-red-200";
     case "high":
-      return "border-orange-400/35 bg-orange-500/12 text-orange-200";
+      return "border-red-400/35 bg-red-500/12 text-red-200";
     case "medium":
       return "border-amber-400/35 bg-amber-500/12 text-amber-200";
     default:
@@ -124,7 +127,7 @@ function statusClass(status: string): string {
     case "closed":
       return "border-slate-400/35 bg-slate-500/12 text-slate-200";
     case "false_positive":
-      return "border-fuchsia-400/35 bg-fuchsia-500/12 text-fuchsia-200";
+      return "border-slate-400/35 bg-slate-500/12 text-slate-200";
     default:
       return "border-cyan-400/35 bg-cyan-500/12 text-cyan-200";
   }
@@ -148,6 +151,10 @@ export function IncidentDetailsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [aiSummaryBusy, setAiSummaryBusy] = useState(false);
+  const [aiReportBusy, setAiReportBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<AiAnalysisResult | null>(null);
 
   const incidentId = useMemo(() => Number(id), [id]);
 
@@ -306,6 +313,55 @@ export function IncidentDetailsPage() {
     }
   }
 
+  async function generateAiSummary() {
+    if (!incident || aiSummaryBusy) return;
+    setAiSummaryBusy(true);
+    setAiError(null);
+    try {
+      const incidentText = [
+        incident.description || "",
+        ...incident.timeline.map((item) => `${item.event_type}: ${item.message}`),
+        ...incident.evidence.map((item) => `${item.evidence_type}: ${item.content}`),
+      ].join("\n");
+      const response = await summarizeIncident({
+        incident_id: incident.id,
+        incident_title: incident.title,
+        incident_text: incidentText,
+        incident_severity: incident.severity,
+        incident_status: incident.status,
+      });
+      setAiResult(response);
+    } catch (err: any) {
+      setAiError(err?.message || "Failed to generate AI summary.");
+    } finally {
+      setAiSummaryBusy(false);
+    }
+  }
+
+  async function generateAiReport() {
+    if (!incident || aiReportBusy) return;
+    setAiReportBusy(true);
+    setAiError(null);
+    try {
+      const sourceText = [
+        incident.title,
+        incident.description || "",
+        ...incident.linked_alerts.map((a) => `Alert ${a.id}: ${a.title} (${a.severity}/${a.status})`),
+        ...incident.evidence.map((item) => `${item.title}: ${item.content}`),
+      ].join("\n");
+      const response = await generateReportDraft({
+        title: `Incident Report - ${incident.title}`,
+        source_text: sourceText,
+        context: `Incident #${incident.id}`,
+      });
+      setAiResult(response);
+    } catch (err: any) {
+      setAiError(err?.message || "Failed to generate AI report draft.");
+    } finally {
+      setAiReportBusy(false);
+    }
+  }
+
   if (error && !incident) return <ErrorState message={error} onRetry={() => void load()} />;
   if (loading && !incident) return <div className="space-y-4"><SkeletonBlock className="h-48" /><SkeletonBlock className="h-80" /></div>;
   if (!incident) return <ErrorState message="Incident not found." onRetry={() => void load()} />;
@@ -386,6 +442,20 @@ export function IncidentDetailsPage() {
                 : ["Review the timeline for auditability.", "Confirm evidence is complete.", "Use the case as learning material.", "Reopen only if new evidence appears."]
         }
       />
+
+      <section className="soc-panel p-5 space-y-3">
+        <div className="flex flex-wrap gap-3">
+          <button type="button" onClick={() => void generateAiSummary()} disabled={aiSummaryBusy} className="soc-button-primary">
+            {aiSummaryBusy ? "Generating..." : "Generate AI Summary"}
+          </button>
+          <button type="button" onClick={() => void generateAiReport()} disabled={aiReportBusy} className="soc-button-ghost">
+            {aiReportBusy ? "Generating..." : "Generate AI Report Draft"}
+          </button>
+        </div>
+        {aiError ? <ErrorState message={aiError} /> : null}
+      </section>
+      {aiResult ? <AiInsightCard result={aiResult} title="AI Incident Insight" /> : null}
+      {aiResult ? <AiReportDraft result={aiResult} /> : null}
 
       {canManage ? (
         <section className="grid gap-4 xl:grid-cols-2">

@@ -1,12 +1,19 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Briefcase, Plus, RefreshCw, Search, ShieldAlert } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 
 import { apiClient } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { Chip } from "../components/ui/Chip";
+import { RowActions } from "../components/ui/RowActions";
+import { BulkBar } from "../components/ui/BulkBar";
+import { FilterRow } from "../components/ui/FilterRow";
+import { PageHeader } from "../components/ui/PageHeader";
 import { InfoHint, RecommendedActions } from "../components/Guidance";
 import { Pagination } from "../components/Pagination";
-import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
+import { Skeleton } from "../components/ui/Skeleton";
+import { EmptyState, ErrorState, SkeletonRows } from "../components/UI";
 
 type IncidentSeverity = "low" | "medium" | "high" | "critical";
 type IncidentStatus = "open" | "investigating" | "resolved" | "closed" | "false_positive";
@@ -47,62 +54,49 @@ function formatDate(value: string | null): string {
   return date.toLocaleString();
 }
 
-function severityClass(severity: string): string {
-  switch (severity) {
-    case "critical":
-      return "border-red-400/35 bg-red-500/12 text-red-200";
-    case "high":
-      return "border-orange-400/35 bg-orange-500/12 text-orange-200";
-    case "medium":
-      return "border-amber-400/35 bg-amber-500/12 text-amber-200";
-    default:
-      return "border-cyan-400/35 bg-cyan-500/12 text-cyan-200";
-  }
-}
-
-function statusClass(status: string): string {
-  switch (status) {
-    case "investigating":
-      return "border-amber-400/35 bg-amber-500/12 text-amber-200";
-    case "resolved":
-      return "border-emerald-400/35 bg-emerald-500/12 text-emerald-200";
-    case "closed":
-      return "border-cyber-muted/25 bg-cyber-muted/10 text-cyber-muted";
-    case "false_positive":
-      return "border-fuchsia-400/35 bg-fuchsia-500/12 text-fuchsia-200";
-    default:
-      return "border-cyan-400/35 bg-cyan-500/12 text-cyan-200";
-  }
+function IncidentsSkeleton() {
+  return (
+    <div style={{ padding: 24 }}>
+      <Skeleton height={48} borderRadius={8} style={{ marginBottom: 16 }} />
+      {Array.from({ length: 8 }).map((_, index) => (
+        <Skeleton
+          key={index}
+          height={44}
+          borderRadius={6}
+          style={{ marginBottom: 4, opacity: 1 - index * 0.08 }}
+        />
+      ))}
+    </div>
+  );
 }
 
 export function IncidentsPage() {
   const { role } = useAuth();
+  const queryClient = useQueryClient();
   const canManage = role === "admin" || role === "analyst";
   const pageSize = 10;
   const [searchParams, setSearchParams] = useSearchParams();
   const alertIdFilter = searchParams.get("alert_id")?.trim() || "";
 
-  const [items, setItems] = useState<IncidentListItem[]>([]);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [status, setStatus] = useState("");
   const [severity, setSeverity] = useState("");
   const [ownerUserId, setOwnerUserId] = useState("");
   const [search, setSearch] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
   const [createTitle, setCreateTitle] = useState("");
   const [createDescription, setCreateDescription] = useState("");
   const [createSeverity, setCreateSeverity] = useState<IncidentSeverity>("medium");
   const [createStatus, setCreateStatus] = useState<IncidentStatus>("open");
   const [createOwnerUserId, setCreateOwnerUserId] = useState("");
-  const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [mutationError, setMutationError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
 
-  async function load() {
-    setLoading(true);
-    setError(null);
-    try {
+  const incidentsQuery = useQuery({
+    queryKey: ["incidents", { page, status, severity, ownerUserId, alertIdFilter, appliedSearch }],
+    queryFn: async () => {
       const params = new URLSearchParams({
         skip: String((page - 1) * pageSize),
         limit: String(pageSize),
@@ -110,39 +104,39 @@ export function IncidentsPage() {
       if (status) params.set("status", status);
       if (severity) params.set("severity", severity);
       if (ownerUserId.trim()) params.set("owner_user_id", ownerUserId.trim());
-      if (search.trim()) params.set("q", search.trim());
+      if (appliedSearch) params.set("q", appliedSearch);
       if (alertIdFilter) params.set("alert_id", alertIdFilter);
 
-      const response = await apiClient.get<IncidentListResponse>(`/incidents?${params.toString()}`);
-      setItems(Array.isArray(response.items) ? response.items : []);
-      setTotal(Number(response.total ?? 0));
-    } catch (err: any) {
-      setItems([]);
-      setTotal(0);
-      setError(err?.message || "Failed to load incidents.");
-    } finally {
-      setLoading(false);
-    }
+      return apiClient.get<IncidentListResponse>(`/incidents?${params.toString()}`);
+    },
+  });
+
+  const items = Array.isArray(incidentsQuery.data?.items) ? incidentsQuery.data.items : [];
+  const total = Number(incidentsQuery.data?.total ?? 0);
+  const loading = incidentsQuery.isLoading;
+  const queryError = incidentsQuery.error instanceof Error ? incidentsQuery.error.message : null;
+  const error = mutationError || queryError;
+
+  if (loading && items.length === 0) {
+    return <IncidentsSkeleton />;
   }
 
-  useEffect(() => {
-    void load();
-  }, [page, status, severity, ownerUserId, alertIdFilter]);
+  async function refreshIncidents() {
+    apiClient.invalidateCache("/incidents");
+    await incidentsQuery.refetch();
+  }
 
   function applySearch(event: FormEvent) {
     event.preventDefault();
-    if (page !== 1) {
-      setPage(1);
-      return;
-    }
-    void load();
+    setAppliedSearch(search.trim());
+    setPage(1);
   }
 
   async function createIncident(event: FormEvent) {
     event.preventDefault();
     if (!canManage || creating) return;
     setCreating(true);
-    setError(null);
+    setMutationError(null);
     setMessage(null);
     try {
       await apiClient.post("/incidents", {
@@ -159,12 +153,36 @@ export function IncidentsPage() {
       setCreateOwnerUserId("");
       setMessage("Incident created successfully.");
       setPage(1);
-      await load();
+      apiClient.invalidateCache("/incidents");
+      await queryClient.invalidateQueries({ queryKey: ["incidents"] });
     } catch (err: any) {
-      setError(err?.message || "Failed to create incident.");
+      setMutationError(err?.message || "Failed to create incident.");
     } finally {
       setCreating(false);
     }
+  }
+
+  function severityTone(severity: string) {
+    if (severity === "critical" || severity === "high") return "critical" as const;
+    if (severity === "medium") return "warning" as const;
+    return "info" as const;
+  }
+
+  function statusTone(statusValue: string) {
+    if (statusValue === "open") return "warning" as const;
+    if (statusValue === "investigating") return "info" as const;
+    if (statusValue === "resolved") return "safe" as const;
+    return "neutral" as const;
+  }
+
+  function rowTint(severityValue: string) {
+    if (severityValue === "critical" || severityValue === "high") return { backgroundColor: "rgba(255,59,59,0.03)" };
+    if (severityValue === "medium") return { backgroundColor: "rgba(245,158,11,0.03)" };
+    return undefined;
+  }
+
+  function toggleSelect(id: number, checked: boolean) {
+    setSelectedIds(prev => (checked ? [...prev, id] : prev.filter(x => x !== id)));
   }
 
   return (
@@ -173,9 +191,8 @@ export function IncidentsPage() {
         eyebrow="Incident Cases"
         title="Incidents"
         description="Group multiple alerts and evidence into one investigation case, assign ownership, and track the response lifecycle."
-        icon={Briefcase}
         actions={
-          <button type="button" onClick={() => void load()} className="soc-button-ghost">
+          <button type="button" onClick={() => void refreshIncidents()} className="soc-button-ghost">
             <RefreshCw className="h-4 w-4" />
             Refresh
           </button>
@@ -257,7 +274,7 @@ export function IncidentsPage() {
         </section>
       ) : null}
 
-      <section className="soc-panel p-5">
+      <FilterRow>
         <form onSubmit={applySearch} className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }} className="soc-input">
             <option value="">All statuses</option>
@@ -291,63 +308,82 @@ export function IncidentsPage() {
             Search
           </button>
         </form>
-      </section>
+      </FilterRow>
 
       {message ? (
         <div className="rounded-2xl border border-emerald-300/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
           {message}
         </div>
       ) : null}
-      {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
+      {error ? <ErrorState message={error} onRetry={() => void refreshIncidents()} /> : null}
       {loading ? <SkeletonRows rows={6} /> : null}
 
       {!loading ? (
         <div className="soc-panel overflow-hidden">
+          <BulkBar
+            active={selectedIds.length > 0}
+            selectedCount={selectedIds.length}
+            actions={
+              <>
+                <button type="button" className="row-action">Assign To</button>
+                <button type="button" className="row-action danger">Close Selected</button>
+                <button type="button" className="row-action">Export</button>
+                <button type="button" className="row-action" onClick={() => setSelectedIds([])}>Clear</button>
+              </>
+            }
+          />
           {items.length === 0 ? (
             <div className="p-5">
               <EmptyState title="No incidents found" description="Create or search incidents to start case-driven triage." icon={ShieldAlert} />
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="soc-table">
+            <div className="table-wrapper">
+              <table className="soc-table tbl">
                 <thead>
                   <tr>
+                    <th />
                     <th>Incident</th>
                     <th>Severity</th>
                     <th>Status</th>
-                    <th>Owner</th>
+                    <th className="col-hide-mobile">Owner</th>
                     <th>Linked alerts</th>
                     <th>Updated</th>
-                    <th>Details</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.map(item => (
-                    <tr key={item.id}>
+                    <tr key={item.id} style={rowTint(item.severity)}>
+                      <td>
+                        <input type="checkbox" checked={selectedIds.includes(item.id)} onChange={e => toggleSelect(item.id, e.target.checked)} />
+                      </td>
                       <td>
                         <p className="font-semibold text-white">{item.title}</p>
                         <p className="mt-1 text-xs text-cyber-muted/60">Created by {item.created_by?.full_name ?? "Unknown"}</p>
                       </td>
                       <td>
-                        <span className={`rounded-full border px-3 py-1 text-xs font-bold uppercase ${severityClass(item.severity)}`}>
-                          {item.severity}
-                        </span>
+                        <Chip tone={severityTone(item.severity)}>{item.severity}</Chip>
                       </td>
                       <td>
-                        <span className={`rounded-full border px-3 py-1 text-xs font-bold uppercase ${statusClass(item.status)}`}>
-                          {item.status.replace("_", " ")}
-                        </span>
+                        <Chip tone={statusTone(item.status)}>{item.status.replace("_", " ")}</Chip>
                       </td>
-                      <td>
+                      <td className="col-hide-mobile">
                         <p className="text-sm font-semibold text-cyber-text">{item.owner?.full_name ?? "Unassigned"}</p>
                         <p className="text-xs text-cyber-muted/60">{item.owner?.email ?? "-"}</p>
                       </td>
                       <td>{item.linked_alerts_count}</td>
                       <td>{formatDate(item.updated_at)}</td>
                       <td>
-                        <Link to={`/incidents/${item.id}`} className="font-semibold text-cyan-200 hover:text-white">
-                          Open
-                        </Link>
+                        <RowActions
+                          items={[
+                            { key: "view", label: <Link to={`/incidents/${item.id}`}>View</Link>, variant: "primary" },
+                            ...(item.status === "open"
+                              ? [{ key: "assign", label: "Assign" }, { key: "close", label: "Close", variant: "danger" as const }]
+                              : item.status === "investigating"
+                                ? [{ key: "update", label: "Update" }, { key: "close", label: "Close", variant: "danger" as const }]
+                                : [{ key: "reopen", label: "Reopen" }]),
+                          ]}
+                        />
                       </td>
                     </tr>
                   ))}

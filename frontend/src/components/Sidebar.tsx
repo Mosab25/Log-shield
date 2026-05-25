@@ -1,15 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronLeft, ChevronRight, ShieldCheck } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 
 import { useAuth } from "../auth/AuthContext";
 import { NAVIGATION_SECTIONS, navigationForRole } from "../navigation";
+import { prefetchRouteData } from "../routePrefetch";
+import { moduleThemeForPath, moduleThemeStyle } from "../theme/moduleThemes";
+import { getRouteAccent } from "../theme/routeAccents";
 
 function defaultOpenSections(role: string | null) {
   if (!role) return Object.fromEntries(NAVIGATION_SECTIONS.map(section => [section, section === "OVERVIEW"])) as Record<string, boolean>;
   
   if (role === "admin") {
     return Object.fromEntries([
+      ["USER PORTAL", false],
       ["OVERVIEW", true],
       ["MONITORING", true],
       ["INVESTIGATION", true],
@@ -22,6 +27,7 @@ function defaultOpenSections(role: string | null) {
   
   if (role === "analyst") {
     return Object.fromEntries([
+      ["USER PORTAL", false],
       ["OVERVIEW", true],
       ["MONITORING", true],
       ["INVESTIGATION", true],
@@ -34,6 +40,7 @@ function defaultOpenSections(role: string | null) {
   
   // For viewer and other roles
   return Object.fromEntries([
+    ["USER PORTAL", true],
     ["OVERVIEW", true],
     ["MONITORING", true],
     ["TRAINING", true],
@@ -48,7 +55,7 @@ function onlySectionOpen(section: string) {
   return Object.fromEntries(NAVIGATION_SECTIONS.map(item => [item, item === section])) as Record<string, boolean>;
 }
 
-export function Sidebar({
+export const Sidebar = memo(function Sidebar({
   collapsed = false,
   onNavigate,
   onToggle,
@@ -59,7 +66,27 @@ export function Sidebar({
 }) {
   const { role } = useAuth();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const items = navigationForRole(role);
+  const routeAccent = getRouteAccent(location.pathname);
+  const activeRouteStyle = useMemo(() => ({
+    "--module-accent": routeAccent.accent,
+    "--module-accent-2": routeAccent.secondary,
+    "--module-accent-soft": routeAccent.soft,
+    "--module-gradient": "linear-gradient(135deg, var(--brand-soft), transparent)",
+    background: "transparent",
+    border: "1px solid transparent",
+    borderLeft: "3px solid var(--module-accent)",
+    boxShadow: "none",
+    transition: "border-color 240ms ease, background-color 240ms ease, color 240ms ease",
+  } as CSSProperties), [routeAccent.accent, routeAccent.secondary, routeAccent.soft]);
+  const collapsedActiveStyle = useMemo(() => ({
+    border: "1px solid transparent",
+    borderLeft: "3px solid var(--module-accent)",
+    background: "transparent",
+    boxShadow: "none",
+    transition: "border-color 240ms ease, color 240ms ease",
+  } as CSSProperties), []);
   const activeSection = useMemo(() => {
     return items.find(item => location.pathname === item.path || location.pathname.startsWith(`${item.path}/`))?.section ?? "OVERVIEW";
   }, [items, location.pathname]);
@@ -179,27 +206,30 @@ export function Sidebar({
                   {sectionItems.map(item => {
                     const Icon = item.icon;
                     const isActive = location.pathname === item.path || location.pathname.startsWith(`${item.path}/`);
+                    const theme = moduleThemeForPath(item.path);
                     return (
                       <NavLink
                         key={item.path}
                         to={item.path}
                         title={collapsed ? `${item.label} - ${item.section}` : item.description}
+                        onMouseEnter={() => prefetchRouteData(queryClient, item.path)}
                         onClick={() => handleNavigate(item.section)}
+                        style={isActive ? (collapsed ? { ...activeRouteStyle, ...collapsedActiveStyle } : activeRouteStyle) : moduleThemeStyle(theme)}
                         className={() =>
                           `group flex items-center rounded-2xl text-sm font-semibold transition relative ${
                             collapsed ? "justify-center px-0 py-3" : "gap-3 px-4 py-3"
                           } ${
                             isActive
-                              ? "border border-cyber-cyan/30 bg-gradient-to-r from-cyber-cyan/20 to-cyber-violet/20 text-cyber-text shadow-lg shadow-cyan-950/30"
-                              : "border border-transparent text-cyber-text hover:border-cyber-cyan/12 hover:bg-cyber-elevated hover:text-white"
+                              ? "text-cyber-text"
+                              : "module-nav-item border border-transparent text-cyber-text hover:bg-cyber-elevated hover:text-white"
                           }`
                         }
                         aria-label={item.label}
                       >
-                        <Icon className={`h-5 w-5 shrink-0 ${isActive ? "text-cyber-cyan" : ""}`} />
+                        <Icon className={`h-5 w-5 shrink-0 ${isActive ? "text-[color:var(--module-accent)]" : ""}`} />
                         {!collapsed ? <span className="truncate">{item.label}</span> : null}
                         {collapsed && (
-                          <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-1 h-8 bg-cyber-cyan rounded-full" />
+                          <div className="absolute left-0 top-1/2 h-8 w-1 -translate-y-1/2 rounded-full bg-[color:var(--module-accent)] transition-[background-color,border-color] duration-[240ms] ease-out" />
                         )}
                       </NavLink>
                     );
@@ -224,4 +254,4 @@ export function Sidebar({
       ) : null}
     </aside>
   );
-}
+});

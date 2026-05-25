@@ -2,7 +2,9 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Ban, Briefcase, Link2, Plus, ShieldCheck } from "lucide-react";
 import { apiClient } from "../api/client";
+import { analyzeLogs, type AiAnalysisResult } from "../api/aiAnalysis";
 import { useAuth } from "../auth/AuthContext";
+import { AiInsightCard } from "../components/ai/AiInsightCard";
 import { AlertDetailsPanel } from "../components/AlertDetailsPanel";
 import { EvidenceExplanation, InvestigationChecklist, RecommendedActions, RiskExplanation } from "../components/Guidance";
 import { NotesPanel } from "../components/NotesPanel";
@@ -38,6 +40,9 @@ export function AlertDetailsPage() {
   const [responseMessage, setResponseMessage] = useState<string | null>(null);
   const [responseError, setResponseError] = useState<string | null>(null);
   const [responseBusy, setResponseBusy] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<AiAnalysisResult | null>(null);
 
   async function loadLinkedIncidents(alertId: string) {
     const response = await apiClient.get<IncidentListResponse>(`/incidents?alert_id=${alertId}&limit=20`);
@@ -139,6 +144,30 @@ export function AlertDetailsPage() {
     }
   }
 
+  async function generateAiInsight() {
+    if (!alert || aiBusy) return;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const payload = [
+        `Alert #${alert.id ?? id}`,
+        `Title: ${alert.title ?? ""}`,
+        `Description: ${alert.description ?? ""}`,
+        `Severity: ${alert.severity ?? ""}`,
+        `Source IP: ${alert.source_ip ?? ""}`,
+        `User: ${alert.username ?? ""}`,
+        `Attack Type: ${alert.attack_type ?? ""}`,
+        `MITRE: ${alert.mitre_technique ?? ""}`,
+      ].join("\n");
+      const result = await analyzeLogs({ raw_logs: payload, context: "Alert details analysis" });
+      setAiResult(result);
+    } catch (err: any) {
+      setAiError(err?.message || "Failed to generate AI insight.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   if (error) return <ErrorState message={error} onRetry={() => void load()} />;
   if (!alert) return <div className="space-y-4"><SkeletonBlock className="h-52" /><SkeletonBlock className="h-72" /></div>;
 
@@ -153,6 +182,17 @@ export function AlertDetailsPage() {
   return (
     <div className="space-y-6">
       <AlertDetailsPanel alert={alert} risk={risk} />
+
+      <section className="soc-panel p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-slate-200">AI-Assisted Alert Analysis</p>
+          <button type="button" onClick={() => void generateAiInsight()} disabled={aiBusy} className="soc-button-primary">
+            {aiBusy ? "Analyzing..." : "Generate AI Insight"}
+          </button>
+        </div>
+        {aiError ? <ErrorState message={aiError} /> : null}
+      </section>
+      {aiResult ? <AiInsightCard result={aiResult} title="AI Alert Insight" /> : null}
 
       {canManageIncidents ? (
         <section className="soc-panel p-5">

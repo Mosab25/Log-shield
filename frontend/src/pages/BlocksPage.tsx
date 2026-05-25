@@ -1,9 +1,13 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Ban, CheckCircle2, Clock, Plus, RefreshCw, ShieldAlert, Trash2, Wifi } from "lucide-react";
+import { Ban, CheckCircle2, Clock, Plus, RefreshCw, ShieldAlert, Wifi } from "lucide-react";
 import { apiClient, type SelfBlockCheckResponse } from "../api/client";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Pagination } from "../components/Pagination";
-import { EmptyState, ErrorState, PageHeader, SectionHeader, SkeletonRows } from "../components/UI";
+import { Chip } from "../components/ui/Chip";
+import { RowActions } from "../components/ui/RowActions";
+import { BulkBar } from "../components/ui/BulkBar";
+import { PageHeader } from "../components/ui/PageHeader";
+import { EmptyState, ErrorState, SectionHeader, SkeletonRows } from "../components/UI";
 
 interface IPBlock {
   id: number;
@@ -57,6 +61,7 @@ export function BlocksPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const pageSize = 10;
 
   const activeQuery = useMemo(() => {
@@ -142,13 +147,28 @@ export function BlocksPage() {
     }
   }
 
+  function statusTone(label: string) {
+    if (label === "Active") return "critical" as const;
+    if (label === "Pending" || label === "Expired") return "warning" as const;
+    return "neutral" as const;
+  }
+
+  function rowTint(label: string) {
+    if (label === "Active") return { backgroundColor: "rgba(255,59,59,0.03)" };
+    if (label === "Pending") return { backgroundColor: "rgba(245,158,11,0.03)" };
+    return undefined;
+  }
+
+  function toggleSelect(id: number, checked: boolean) {
+    setSelectedIds(prev => (checked ? [...prev, id] : prev.filter(x => x !== id)));
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Admin controls"
         title="IP Blocks"
         description="Deny abusive source IPs across login, registration, and operational API routes."
-        icon={ShieldAlert}
         actions={
           <button type="button" onClick={() => void load()} className="soc-button-ghost">
             <RefreshCw className="h-4 w-4" />
@@ -221,6 +241,18 @@ export function BlocksPage() {
 
           {!loading ? (
             <div className="soc-panel overflow-hidden">
+              <BulkBar
+                active={selectedIds.length > 0}
+                selectedCount={selectedIds.length}
+                actions={
+                  <>
+                    <button type="button" className="row-action">Unblock Selected</button>
+                    <button type="button" className="row-action">Export</button>
+                    <button type="button" className="row-action danger">Remove Selected</button>
+                    <button type="button" className="row-action" onClick={() => setSelectedIds([])}>Clear</button>
+                  </>
+                }
+              />
               {blocks.length === 0 ? (
                 <div className="p-5">
                   <EmptyState title="No IP blocks found" description="Create a block to enforce source-IP denial across the API." icon={Ban} />
@@ -230,6 +262,7 @@ export function BlocksPage() {
                   <table className="soc-table">
                     <thead>
                       <tr>
+                        <th />
                         <th>IP address</th>
                         <th>Status</th>
                         <th>Reason</th>
@@ -241,13 +274,16 @@ export function BlocksPage() {
                       {blocks.map(block => {
                         const status = getBlockStatus(block);
                         return (
-                          <tr key={block.id}>
+                          <tr key={block.id} style={rowTint(status.label)}>
+                            <td>
+                              <input type="checkbox" checked={selectedIds.includes(block.id)} onChange={e => toggleSelect(block.id, e.target.checked)} />
+                            </td>
                             <td>
                               <p className="font-mono font-bold text-white">{block.ip_address}</p>
                               <p className="mt-1 text-xs text-slate-500">Created {formatDate(block.created_at)}</p>
                             </td>
                             <td>
-                              <span className={`rounded-full border px-3 py-1 text-xs font-bold uppercase ${status.className}`}>{status.label}</span>
+                              <Chip tone={statusTone(status.label)}>{status.label}</Chip>
                             </td>
                             <td className="max-w-sm">
                               <p className="line-clamp-2 text-slate-300">{block.reason || "Blocked by administrator"}</p>
@@ -256,10 +292,13 @@ export function BlocksPage() {
                               <span className="text-sm font-semibold text-slate-200">{formatDate(block.blocked_until)}</span>
                             </td>
                             <td>
-                              <button type="button" onClick={() => void unblock(block)} disabled={!block.is_active} className="soc-button-ghost px-3 py-1.5 text-xs">
-                                <Trash2 className="h-4 w-4" />
-                                Unblock
-                              </button>
+                              <RowActions
+                                items={[
+                                  ...(status.label === "Active" ? [{ key: "unblock", label: "Unblock", variant: "danger" as const, onClick: () => void unblock(block), disabled: !block.is_active }] : []),
+                                  { key: "view", label: "View Logs", variant: "primary" },
+                                  ...(status.label === "Expired" ? [{ key: "renew", label: "Renew" }] : []),
+                                ]}
+                              />
                             </td>
                           </tr>
                         );

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Activity, History, Server, ShieldAlert, Download, FileText } from "lucide-react";
-import { API_BASE_URL, getAuthHeaders } from "../api/client";
+import { API_BASE_URL, getAuthHeaders, toUserErrorMessage } from "../api/client";
 import { RiskBadge } from "./RiskBadge";
 import { SeverityBadge } from "./SeverityBadge";
 import { StatusBadge } from "./StatusBadge";
@@ -10,7 +10,7 @@ import { useAuth } from "../auth/AuthContext";
 const ATTACK_TYPE_COLORS: Record<string, string> = {
   brute_force: "bg-cyber-red/20 text-cyber-red border-cyber-red/30",
   unauthorized_access: "bg-cyber-amber/20 text-cyber-amber border-cyber-amber/30",
-  web_attack: "bg-cyber-violet/20 text-cyber-violet border-cyber-violet/30",
+  web_attack: "bg-cyber-cyan/10 text-cyber-cyan border-cyber-cyan/25",
   privilege_escalation: "bg-cyber-amber/20 text-cyber-amber border-cyber-amber/30",
   reconnaissance: "bg-cyber-cyan/20 text-cyber-cyan border-cyber-cyan/30",
   anomaly: "bg-cyber-cyan/20 text-cyber-cyan border-cyber-cyan/30",
@@ -102,7 +102,7 @@ export function AlertDetailsPanel({ alert, risk }: { alert: any; risk: any | nul
       document.body.removeChild(a);
       
     } catch (err: any) {
-      setPdfError(err.message || 'Unable to generate report. Please try again.');
+      setPdfError(toUserErrorMessage(err, "Unable to generate report. Please try again."));
     } finally {
       setGeneratingPdf(false);
     }

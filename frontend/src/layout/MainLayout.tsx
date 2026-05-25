@@ -1,10 +1,20 @@
-import { useEffect, useState } from "react";
-import { Outlet } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
+import { Menu, X } from "lucide-react";
+import { useLocation } from "react-router-dom";
+import { ModuleThemeFrame } from "../components/ModuleTheme";
 import { Navbar } from "../components/Navbar";
+import { OutletTransition } from "../components/PageTransition";
 import { Sidebar } from "../components/Sidebar";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 
 export function MainLayout() {
+  const location = useLocation();
+  const isMobile = useMediaQuery("(max-width: 767px)");
+  const isTablet = useMediaQuery("(min-width: 768px) and (max-width: 1023px)");
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const touchStartX = useRef<number | null>(null);
+  const touchMoveX = useRef<number | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
       return localStorage.getItem("logshield.sidebar.collapsed") === "true";
@@ -21,66 +31,109 @@ export function MainLayout() {
     }
   }, [sidebarCollapsed]);
 
-  // Handle responsive behavior - close mobile drawer when switching to desktop
   useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 1024 && sidebarOpen) {
-        setSidebarOpen(false);
-      }
-    };
-    
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [sidebarOpen]);
+    if (isDesktop && sidebarOpen) {
+      setSidebarOpen(false);
+    }
+  }, [isDesktop, sidebarOpen]);
 
-  // Handle Escape key to close mobile drawer
+  useEffect(() => {
+    if (isMobile) {
+      setSidebarCollapsed(true);
+    }
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (isMobile) setSidebarOpen(false);
+  }, [isMobile, location.pathname]);
+
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && sidebarOpen) {
+      if (event.key === "Escape" && sidebarOpen) {
         setSidebarOpen(false);
       }
     };
-    
-    document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
   }, [sidebarOpen]);
 
+  const leftPad = useMemo(() => {
+    if (isMobile) return "0px";
+    if (isTablet) return "var(--sidebar-width-collapsed)";
+    return sidebarCollapsed ? "var(--sidebar-width-collapsed)" : "var(--sidebar-width)";
+  }, [isMobile, isTablet, sidebarCollapsed]);
+
+  function handleDrawerTouchStart(event: TouchEvent<HTMLDivElement>) {
+    touchStartX.current = event.touches[0]?.clientX ?? null;
+    touchMoveX.current = null;
+  }
+
+  function handleDrawerTouchMove(event: TouchEvent<HTMLDivElement>) {
+    touchMoveX.current = event.touches[0]?.clientX ?? null;
+  }
+
+  function handleDrawerTouchEnd() {
+    if (touchStartX.current == null || touchMoveX.current == null) return;
+    const delta = touchStartX.current - touchMoveX.current;
+    if (delta > 64) {
+      setSidebarOpen(false);
+    }
+  }
+
   return (
-    <div className="min-h-screen text-cyber-text">
-      {/* Desktop Sidebar - always visible on desktop */}
-      <div className={`fixed inset-y-0 left-0 z-40 hidden border-r border-cyan-400/12 bg-cyber-surface/95 shadow-2xl shadow-black/50 backdrop-blur-xl transition-[width] duration-200 xl:block ${sidebarCollapsed ? "w-20" : "w-72"}`}>
+    <ModuleThemeFrame className="layout-wrapper min-h-screen text-cyber-text">
+      <div
+        className={`fixed inset-y-0 left-0 z-40 border-r border-cyan-400/12 bg-cyber-surface/95 shadow-2xl shadow-black/50 backdrop-blur-xl transition-[width] duration-200 ${
+          isDesktop || isTablet ? "block" : "hidden"
+        }`}
+        style={{ width: isTablet ? "var(--sidebar-width-collapsed)" : sidebarCollapsed ? "var(--sidebar-width-collapsed)" : "var(--sidebar-width)" }}
+      >
         <Sidebar
-          collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed(value => !value)}
-          onNavigate={() => setSidebarCollapsed(true)}
+          collapsed={isTablet ? true : sidebarCollapsed}
+          onToggle={isTablet ? undefined : () => setSidebarCollapsed(value => !value)}
+          onNavigate={() => undefined}
         />
       </div>
 
-      {/* Mobile Sidebar Drawer - only on mobile/tablet */}
-      {sidebarOpen ? (
-        <div className="fixed inset-0 z-50 xl:hidden">
+      {isMobile ? (
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(value => !value)}
+          aria-label={sidebarOpen ? "Close navigation" : "Open navigation"}
+          className="fixed left-3 top-3 z-[200] h-9 w-9 rounded-lg border border-white/10 bg-[rgba(5,9,20,0.9)] p-0 text-cyber-text shadow-lg shadow-black/50"
+        >
+          {sidebarOpen ? <X className="mx-auto h-4 w-4" /> : <Menu className="mx-auto h-4 w-4" />}
+        </button>
+      ) : null}
+
+      {isMobile && sidebarOpen ? (
+        <div className="fixed inset-0 z-[150]">
           <button
             type="button"
             aria-label="Close navigation"
-            className="absolute inset-0 bg-cyber-bg/80 backdrop-blur-sm"
+            className="absolute inset-0 z-[140] bg-black/55"
             onClick={() => setSidebarOpen(false)}
           />
-          <div className="relative h-full w-80 max-w-[90vw] border-r border-cyan-400/12 bg-cyber-surface shadow-2xl shadow-black overflow-y-auto">
-            <Sidebar 
-              collapsed={false} 
-              onNavigate={() => setSidebarOpen(false)} 
+          <div
+            className="fixed left-0 top-0 z-[150] h-full w-[75%] max-w-[280px] overflow-y-auto border-r border-[var(--border)] bg-[var(--bg-secondary)] transition-[left] duration-300 ease-out"
+            onTouchStart={handleDrawerTouchStart}
+            onTouchMove={handleDrawerTouchMove}
+            onTouchEnd={handleDrawerTouchEnd}
+          >
+            <Sidebar
+              collapsed={false}
+              onNavigate={() => setSidebarOpen(false)}
             />
           </div>
         </div>
       ) : null}
 
-      {/* Main Content Area */}
-      <div className={`transition-[padding] duration-200 ${sidebarCollapsed ? "xl:pl-20" : "xl:pl-72"}`}>
-        <Navbar onMobileMenuClick={() => setSidebarOpen(true)} />
-        <main className="mx-auto w-full max-w-[96rem] px-3 py-4 sm:px-4 sm:py-5 lg:px-6 lg:py-6">
-          <Outlet />
+      <div className="transition-[padding-left] duration-200" style={{ paddingLeft: leftPad }}>
+        <Navbar onMobileMenuClick={isMobile ? () => setSidebarOpen(true) : undefined} />
+        <main className="page-wrapper w-full py-4 sm:py-5 lg:py-6">
+          <OutletTransition />
         </main>
       </div>
-    </div>
+    </ModuleThemeFrame>
   );
 }

@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Search, Globe, Database, AlertCircle, Download, CheckCircle, Clock, ShieldAlert } from "lucide-react";
-import { ApiError, apiClient, getAuthHeaders, tokenStorage } from "../api/client";
+import { ApiError, apiClient, tokenStorage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { useAuthGate } from "../auth/useAuthGate";
 import { InfoHint, RecommendedActions } from "../components/Guidance";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
@@ -23,6 +24,7 @@ export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean
   const navigate = useNavigate();
   const location = useLocation();
   const { refreshUser, role } = useAuth();
+  const { requireAuth, loginRequiredModal, isAuthenticated } = useAuthGate();
   const canImportCves = role === "admin" || role === "analyst";
   const [query, setQuery] = useState("");
   const [severity, setSeverity] = useState("");
@@ -46,13 +48,13 @@ export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean
     navigate("/login", { replace: true, state: { from: location } });
   }
 
-  async function search() {
+  function search() {
+    requireAuth(() => void runSearch());
+  }
+
+  async function runSearch() {
     const trimmed = query.trim();
     if (!trimmed) return;
-    if (!getAuthHeaders().Authorization) {
-      await handleAuthExpired();
-      return;
-    }
     setLoading(true);
     setMessage(null);
     try {
@@ -86,13 +88,10 @@ export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean
   }
 
   async function importCVE(cveId: string) {
-    if (!getAuthHeaders().Authorization) {
-      await handleAuthExpired();
-      return;
-    }
+    if (!requireAuth(() => undefined)) return;
     try {
       await apiClient.post(`/threat-intel/import-cve/${cveId}`);
-      await search();
+      await runSearch();
     } catch (err: any) {
       if (err instanceof ApiError && err.status === 401) {
         await handleAuthExpired();
@@ -121,6 +120,11 @@ export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean
       <InfoHint title="How to use CVE results">
         A CVE is useful only when it connects to your environment. Check the affected product, CVSS severity, exploitability, publication date, and whether the technology exists in your assets.
       </InfoHint>
+      {!isAuthenticated ? (
+        <InfoHint title="Public read-only mode">
+          You can review the CVE workflow and filters. Live NVD/local CVE searches and imports require a LogShield account.
+        </InfoHint>
+      ) : null}
 
       <section className="soc-panel p-5">
         <div className="grid gap-3 xl:grid-cols-[1fr_12rem_12rem_auto]">
@@ -213,6 +217,7 @@ export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean
           )}
         </div>
       ) : null}
+      {loginRequiredModal}
     </div>
   );
 }

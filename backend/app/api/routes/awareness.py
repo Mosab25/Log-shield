@@ -29,7 +29,12 @@ from app.schemas.quiz import (
 from app.services.audit_service import AuditService
 from app.services.quiz_service import QuizService
 
-router = APIRouter()
+
+def _ensure_awareness_schema(db: Annotated[Session, Depends(get_db)]) -> None:
+    QuizService.ensure_schema(db)
+
+
+router = APIRouter(dependencies=[Depends(_ensure_awareness_schema)])
 
 
 # Quiz listing and retrieval

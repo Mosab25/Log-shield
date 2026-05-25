@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Edit2, Trash2, Eye, Users, Clock, AlertTriangle, CheckCircle, X } from "lucide-react";
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { Pagination } from "../components/Pagination";
-import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
+import { AppModal } from "../components/ui/AppModal";
+import { BulkBar } from "../components/ui/BulkBar";
+import { Chip } from "../components/ui/Chip";
+import { PageHeader } from "../components/ui/PageHeader";
+import { RowActions } from "../components/ui/RowActions";
+import { EmptyState, ErrorState, SkeletonRows } from "../components/UI";
 
 interface Quiz {
   id: number;
@@ -70,6 +75,7 @@ export function QuizManagementPage() {
   const [selectedQuestions, setSelectedQuestions] = useState<QuizQuestion[]>([]);
   const [questionForm, setQuestionForm] = useState(EMPTY_QUESTION_FORM);
   const [savingQuestion, setSavingQuestion] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -108,7 +114,7 @@ export function QuizManagementPage() {
     } catch (err: any) {
       setQuizzes([]);
       setTotal(0);
-      setError(err?.message || "Failed to load quizzes.");
+      setError(toUserErrorMessage(err, "Quiz catalog is currently unavailable. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -128,7 +134,7 @@ export function QuizManagementPage() {
       const res = await apiClient.get<Quiz>(`/awareness/quizzes/${quizId}`);
       setSelectedQuestions(res.questions || []);
     } catch (err: any) {
-      setError(err?.message || "Failed to load quiz questions.");
+      setError(toUserErrorMessage(err, "Quiz questions are currently unavailable. Please try again."));
     }
   }
 
@@ -145,7 +151,7 @@ export function QuizManagementPage() {
       setQuestionForm(EMPTY_QUESTION_FORM);
       setShowQuestionsModal(true);
     } catch (err: any) {
-      setError(err?.message || "Failed to create quiz.");
+      setError(toUserErrorMessage(err, "Unable to create quiz right now. Please try again."));
     }
   }
 
@@ -177,7 +183,7 @@ export function QuizManagementPage() {
       await loadQuizQuestions(selectedQuiz.id);
       await loadQuizzes();
     } catch (err: any) {
-      setError(err?.message || "Failed to add question.");
+      setError(toUserErrorMessage(err, "Unable to add question right now. Please try again."));
     } finally {
       setSavingQuestion(false);
     }
@@ -193,7 +199,7 @@ export function QuizManagementPage() {
       resetForm();
       await loadQuizzes();
     } catch (err: any) {
-      setError(err?.message || "Failed to update quiz.");
+      setError(toUserErrorMessage(err, "Unable to update quiz right now. Please try again."));
     }
   }
 
@@ -204,7 +210,7 @@ export function QuizManagementPage() {
       await apiClient.delete(`/awareness/quizzes/${quizId}`);
       await loadQuizzes();
     } catch (err: any) {
-      setError(err?.message || "Failed to deactivate quiz.");
+      setError(toUserErrorMessage(err, "Unable to deactivate quiz right now. Please try again."));
     }
   }
 
@@ -217,7 +223,7 @@ export function QuizManagementPage() {
         await loadQuizQuestions(selectedQuiz.id);
       }
     } catch (err: any) {
-      setError(err?.message || "Failed to delete question.");
+      setError(toUserErrorMessage(err, "Unable to delete question right now. Please try again."));
     }
   }
 
@@ -268,23 +274,17 @@ export function QuizManagementPage() {
   }
 
   function getCategoryColor(category: string) {
-    const colors: Record<string, string> = {
-      "Security Fundamentals": "bg-blue-500/20 text-blue-300 border-blue-500/30",
-      "Network Security": "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
-      "Web Application Security": "bg-purple-500/20 text-purple-300 border-purple-500/30",
-      "SOC Operations": "bg-orange-500/20 text-orange-300 border-orange-500/30",
-      "Incident Response": "bg-red-500/20 text-red-300 border-red-500/30"
-    };
-    return colors[category] || "bg-cyber-elevated/40 text-cyber-muted border-cyber-muted/25";
+    return category
+      ? "bg-cyber-cyan/10 text-cyber-cyan border-cyber-cyan/25"
+      : "bg-cyber-elevated/40 text-cyber-muted border-cyber-muted/25";
   }
 
   return (
     <div className="space-y-6">
       <PageHeader 
-        eyebrow="Quiz Management" 
-        title="Security Quiz Administration" 
-        description="Create and manage cybersecurity training quizzes and assessments." 
-        icon={Users} 
+        eyebrow="SECURITY AWARENESS" 
+        title="Quiz Management" 
+        description="Make quiz management clean for instructors and security training owners." 
       />
 
       <div className="flex items-center justify-between">
@@ -308,9 +308,22 @@ export function QuizManagementPage() {
           ) : (
             <>
               <div className="overflow-x-auto">
+                <BulkBar
+                  active={selectedIds.length > 0}
+                  selectedCount={selectedIds.length}
+                  actions={
+                    <>
+                      <button type="button" className="row-action success">Publish Selected</button>
+                      <button type="button" className="row-action">Archive Selected</button>
+                      <button type="button" className="row-action danger">Delete</button>
+                      <button type="button" className="row-action" onClick={() => setSelectedIds([])}>Clear</button>
+                    </>
+                  }
+                />
                 <table className="soc-table">
                   <thead>
                     <tr>
+                      <th />
                       <th>Title</th>
                       <th>Category</th>
                       <th>Type</th>
@@ -326,25 +339,26 @@ export function QuizManagementPage() {
                     {quizzes.map((quiz) => (
                       <tr key={quiz.id}>
                         <td>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.includes(quiz.id)}
+                            onChange={event => setSelectedIds(prev => event.target.checked ? [...prev, quiz.id] : prev.filter(id => id !== quiz.id))}
+                          />
+                        </td>
+                        <td>
                           <div>
                             <p className="font-semibold text-white">{quiz.title}</p>
                             <p className="text-xs text-cyber-muted/60">{quiz.slug}</p>
                           </div>
                         </td>
                         <td>
-                          <span className={`rounded-full border px-2 py-1 text-xs font-bold ${getCategoryColor(quiz.category)}`}>
-                            {quiz.category}
-                          </span>
+                          <Chip tone="safe">{quiz.category}</Chip>
                         </td>
                         <td>
-                          <span className="rounded-full border border-cyan-400/15 px-2 py-1 text-xs font-bold text-cyber-muted">
-                            {quiz.type}
-                          </span>
+                          <Chip tone="info">{quiz.type}</Chip>
                         </td>
                         <td>
-                          <span className={`rounded-full border px-2 py-1 text-xs font-bold ${getDifficultyColor(quiz.difficulty)}`}>
-                            {quiz.difficulty.charAt(0).toUpperCase() + quiz.difficulty.slice(1)}
-                          </span>
+                          <Chip tone={quiz.difficulty === "advanced" ? "critical" : quiz.difficulty === "intermediate" ? "warning" : "safe"}>{quiz.difficulty}</Chip>
                         </td>
                         <td>
                           <div className="flex items-center gap-2">
@@ -359,38 +373,16 @@ export function QuizManagementPage() {
                         <td className="text-cyber-muted">{quiz.estimated_minutes} min</td>
                         <td className="text-cyber-muted">{quiz.pass_percentage}%</td>
                         <td>
-                          <span className={`rounded-full border px-2 py-1 text-xs font-bold ${
-                            quiz.is_active 
-                              ? 'bg-green-500/20 text-green-300 border-green-500/30' 
-                              : 'bg-cyber-elevated/40 text-cyber-muted border-cyber-muted/25'
-                          }`}>
-                            {quiz.is_active ? 'Active' : 'Inactive'}
-                          </span>
+                          <Chip tone={quiz.is_active ? "safe" : "neutral"}>{quiz.is_active ? "Published" : "Draft"}</Chip>
                         </td>
                         <td className="text-right">
-                          <div className="flex items-center gap-2">
-                            <button 
-                              onClick={() => openQuestionsModal(quiz)}
-                              className="soc-button-ghost p-2"
-                              title="View Questions"
-                            >
-                              <Eye className="h-4 w-4" />
-                            </button>
-                            <button 
-                              onClick={() => openEditModal(quiz)}
-                              className="soc-button-ghost p-2"
-                              title="Edit Quiz"
-                            >
-                              <Edit2 className="h-4 w-4" />
-                            </button>
-                            <button 
-                              onClick={() => handleDeleteQuiz(quiz.id)}
-                              className="soc-button-ghost p-2"
-                              title="Deactivate Quiz"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </div>
+                          <RowActions
+                            items={[
+                              { key: "edit", label: "Edit", variant: "primary", onClick: () => openEditModal(quiz) },
+                              ...(quiz.is_active ? [{ key: "disable", label: "Disable", onClick: () => handleDeleteQuiz(quiz.id) }] : [{ key: "publish", label: "Publish", variant: "success" as const }]),
+                              { key: "view", label: "View Results", onClick: () => openQuestionsModal(quiz) },
+                            ]}
+                          />
                         </td>
                       </tr>
                     ))}
@@ -405,8 +397,8 @@ export function QuizManagementPage() {
 
       {/* Create Quiz Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-cyber-bg/80 px-4 backdrop-blur-sm">
-          <div className="soc-panel-strong max-h-[85vh] w-full max-w-2xl overflow-y-auto p-6">
+        <AppModal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} size="md" panelClassName="soc-panel-strong p-6">
+          <div>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-cyber-text">Create New Quiz</h2>
               <button onClick={() => setShowCreateModal(false)} className="soc-button-ghost px-3 py-1">
@@ -518,13 +510,13 @@ export function QuizManagementPage() {
               <button onClick={() => setShowCreateModal(false)} className="soc-button-ghost">Cancel</button>
             </div>
           </div>
-        </div>
+        </AppModal>
       )}
 
       {/* Edit Quiz Modal */}
       {showEditModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-cyber-bg/80 px-4 backdrop-blur-sm">
-          <div className="soc-panel-strong max-h-[85vh] w-full max-w-2xl overflow-y-auto p-6">
+        <AppModal isOpen={showEditModal} onClose={() => setShowEditModal(false)} size="md" panelClassName="soc-panel-strong p-6">
+          <div>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-cyber-text">Edit Quiz</h2>
               <button onClick={() => setShowEditModal(false)} className="soc-button-ghost px-3 py-1">
@@ -636,13 +628,13 @@ export function QuizManagementPage() {
               <button onClick={() => setShowEditModal(false)} className="soc-button-ghost">Cancel</button>
             </div>
           </div>
-        </div>
+        </AppModal>
       )}
 
       {/* Questions Modal */}
       {showQuestionsModal && selectedQuiz && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-cyber-bg/80 px-4 backdrop-blur-sm">
-          <div className="soc-panel-strong max-h-[85vh] w-full max-w-4xl overflow-y-auto p-6">
+        <AppModal isOpen={showQuestionsModal && Boolean(selectedQuiz)} onClose={() => setShowQuestionsModal(false)} size="xl" panelClassName="soc-panel-strong p-6">
+          <div>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-bold text-white">Questions for {selectedQuiz.title}</h2>
               <button onClick={() => setShowQuestionsModal(false)} className="soc-button-ghost px-3 py-1">
@@ -758,7 +750,7 @@ export function QuizManagementPage() {
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
-                          <span className="text-sm font-bold text-blue-400">Q{index + 1}</span>
+                          <span className="text-sm font-bold text-cyan-400">Q{index + 1}</span>
                           {question.difficulty && (
                             <span className={`rounded-full border px-2 py-0.5 text-xs font-bold ${getDifficultyColor(question.difficulty)}`}>
                               {question.difficulty.charAt(0).toUpperCase() + question.difficulty.slice(1)}
@@ -811,7 +803,7 @@ export function QuizManagementPage() {
               <button onClick={() => setShowQuestionsModal(false)} className="soc-button-ghost">Close</button>
             </div>
           </div>
-        </div>
+        </AppModal>
       )}
     </div>
   );

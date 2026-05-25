@@ -70,7 +70,7 @@ function statusIcon(status: string) {
 function scoreColor(score: number) {
   if (score <= 20) return "text-emerald-300";
   if (score <= 40) return "text-amber-300";
-  if (score <= 60) return "text-orange-300";
+  if (score <= 60) return "text-amber-300";
   return "text-red-300";
 }
 

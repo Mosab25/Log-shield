@@ -37,6 +37,18 @@ class URLScanScoreBreakdown(BaseModel):
     engine_results: list[URLScanEngineResult] = Field(default_factory=list, description="Engines that affected the verdict")
 
 
+class URLScanParsedUrl(BaseModel):
+    scheme: str = Field(..., description="URL scheme")
+    hostname: str = Field(..., description="Parsed hostname")
+    path: str = Field(..., description="Parsed URL path")
+
+
+class URLScanSafetyModel(BaseModel):
+    visited_url: bool = Field(default=False, description="Whether LogShield visited the submitted URL")
+    executed_content: bool = Field(default=False, description="Whether LogShield executed URL content")
+    note: str = Field(default="URL was analyzed using static indicators only.", description="Safety note")
+
+
 class URLScanResponse(BaseModel):
     id: int | None = Field(None, description="Scan result ID")
     url: str = Field(..., description="Original submitted URL")
@@ -48,10 +60,18 @@ class URLScanResponse(BaseModel):
     categories: list[str] = Field(default_factory=list, description="Categories from provider")
     last_analysis_date: datetime | None = Field(None, description="When provider last analyzed this URL")
     recommendation: str = Field(..., description="Safety recommendation")
+    summary_text: str | None = Field(None, description="Human-readable result summary")
+    confidence_note: str | None = Field(None, description="Confidence and data-source note")
     score_breakdown: URLScanScoreBreakdown | None = Field(None, description="Explainable score breakdown")
     raw_reference: URLScanRawReference = Field(..., description="Provider reference information")
     scanned_at: datetime = Field(..., description="When LogShield scanned this URL")
     scanned_by: str = Field(..., description="User who requested the scan")
+    mode: str = Field(default="external_provider", description="external_provider or local_fallback")
+    severity: str | None = Field(None, description="Local fallback severity")
+    reasons: list[str] = Field(default_factory=list, description="Static analysis reasons")
+    parsed_url: URLScanParsedUrl | None = Field(None, description="Parsed URL details")
+    recommended_actions: list[str] = Field(default_factory=list, description="Recommended analyst actions")
+    safety_model: URLScanSafetyModel | None = Field(None, description="Safety properties of the scan")
 
 
 class URLScanHistoryItem(BaseModel):

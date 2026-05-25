@@ -6,9 +6,14 @@ import {
 } from "lucide-react";
 import { apiClient } from "../api/client";
 import { Pagination } from "../components/Pagination";
-import { SeverityBadge } from "../components/SeverityBadge";
-import { StatCard } from "../components/StatCard";
-import { EmptyState, ErrorState, PageHeader, SectionHeader, SkeletonBlock, SkeletonRows } from "../components/UI";
+import { AppModal } from "../components/ui/AppModal";
+import { EmptyState, ErrorState, SectionHeader, SkeletonBlock, SkeletonRows } from "../components/UI";
+import { BulkBar } from "../components/ui/BulkBar";
+import { Chip } from "../components/ui/Chip";
+import { FilterRow } from "../components/ui/FilterRow";
+import { PageHeader } from "../components/ui/PageHeader";
+import { RowActions } from "../components/ui/RowActions";
+import { StatCard } from "../components/ui/StatCard";
 
 // --- Types ---
 
@@ -113,8 +118,8 @@ function formatDateTime(dateString: string) {
 
 function getCategoryColor(cat: string) {
   switch (cat) {
-    case "auth": return "bg-blue-500/20 text-blue-300 border-blue-500/30";
-    case "admin": return "bg-purple-500/20 text-purple-300 border-purple-500/30";
+    case "auth": return "bg-cyan-500/20 text-cyan-300 border-cyan-500/30";
+    case "admin": return "bg-cyan-500/10 text-cyan-300 border-cyan-500/25";
     case "security": return "bg-red-500/20 text-red-300 border-red-500/30";
     case "report": return "bg-indigo-500/20 text-indigo-300 border-indigo-500/30";
     case "incident": return "bg-amber-500/20 text-amber-300 border-amber-500/30";
@@ -128,7 +133,7 @@ function getActionColor(action: string) {
   if (/failed|blocked|denied|deleted|deactivated/.test(a)) return "bg-red-500/20 text-red-300 border-red-500/30";
   if (/created|success|enabled|activated|verified/.test(a)) return "bg-emerald-500/20 text-emerald-300 border-emerald-500/30";
   if (/updated|changed|modified|exported/.test(a)) return "bg-amber-500/20 text-amber-300 border-amber-500/30";
-  if (/login|logout|session|register/.test(a)) return "bg-blue-500/20 text-blue-300 border-blue-500/30";
+  if (/login|logout|session|register/.test(a)) return "bg-cyan-500/20 text-cyan-300 border-cyan-500/30";
   if (/scan|threat|alert|incident/.test(a)) return "bg-cyan-500/20 text-cyan-300 border-cyan-500/30";
   return "bg-slate-500/20 text-slate-300 border-slate-500/30";
 }
@@ -160,6 +165,7 @@ export function AuditLogsPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const pageSize = 50;
 
   const queryString = useMemo(() => {
@@ -233,6 +239,16 @@ export function AuditLogsPage() {
     setTimeout(() => setCopiedId(null), 1500);
   }
 
+  function toggleSelect(id: number, checked: boolean) {
+    setSelectedIds(prev => checked ? [...prev, id] : prev.filter(x => x !== id));
+  }
+
+  function toggleSelectAll(checked: boolean) {
+    setSelectedIds(checked ? logs.map(l => l.id) : []);
+  }
+
+  const allSelected = logs.length > 0 && logs.every(l => selectedIds.includes(l.id));
+
   function exportCSV() {
     if (logs.length === 0) return;
     const headers = ["ID", "Timestamp", "Action", "Category", "Severity", "Actor", "Actor Email", "IP Address", "Entity Type", "Entity ID"];
@@ -261,10 +277,9 @@ export function AuditLogsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Admin"
+        eyebrow="AUDIT TRAIL"
         title="Audit Logs"
-        description="Track security-relevant actions, authentication events, administrative changes, and investigation activity."
-        icon={Activity}
+        description="Review administrative actions, authentication events, and platform activity history."
         actions={
           <div className="flex items-center gap-3">
             <button onClick={exportCSV} disabled={logs.length === 0} className="soc-button-ghost flex items-center gap-2 px-4 py-2 text-sm font-semibold">
@@ -279,12 +294,12 @@ export function AuditLogsPage() {
 
       {/* Summary Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <StatCard title="Total Events Today" value={summary?.total_events_today ?? 0} icon={Activity} />
-        <StatCard title="Sensitive Events" value={summary?.sensitive_events_today ?? 0} icon={ShieldAlert} />
-        <StatCard title="Failed Logins" value={summary?.failed_logins_today ?? 0} icon={AlertTriangle} />
-        <StatCard title="Admin Actions" value={summary?.admin_actions_today ?? 0} icon={Shield} />
-        <StatCard title="Most Active User" value={summary?.most_active_user?.name ?? "N/A"} icon={User} />
-        <StatCard title="Top Action" value={summary?.most_common_action?.action ?? "N/A"} icon={CheckCircle} />
+        <StatCard label="Total Events Today" value={summary?.total_events_today ?? 0} icon={<Activity className="h-4 w-4" />} />
+        <StatCard label="Sensitive Events" value={summary?.sensitive_events_today ?? 0} icon={<ShieldAlert className="h-4 w-4" />} />
+        <StatCard label="Failed Logins" value={summary?.failed_logins_today ?? 0} icon={<AlertTriangle className="h-4 w-4" />} />
+        <StatCard label="Admin Actions" value={summary?.admin_actions_today ?? 0} icon={<Shield className="h-4 w-4" />} />
+        <StatCard label="Most Active User" value={summary?.most_active_user?.name ?? "N/A"} icon={<User className="h-4 w-4" />} />
+        <StatCard label="Top Action" value={summary?.most_common_action?.action ?? "N/A"} icon={<CheckCircle className="h-4 w-4" />} />
       </div>
 
       {/* Category Distribution + Timeline */}
@@ -303,8 +318,8 @@ export function AuditLogsPage() {
                         <span className="text-sm text-slate-300 capitalize">{cat.category}</span>
                         <span className="text-sm font-bold text-white">{cat.count}</span>
                       </div>
-                      <div className="h-2 rounded-full bg-slate-800">
-                        <div className={`h-2 rounded-full ${getCategoryColor(cat.category).split(" ")[0]}`} style={{ width: `${pct}%` }} />
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                        <div className={`h-2 w-full origin-left rounded-full ${getCategoryColor(cat.category).split(" ")[0]}`} style={{ transform: `scaleX(${pct / 100})` }} />
                       </div>
                     </div>
                   );
@@ -323,8 +338,8 @@ export function AuditLogsPage() {
                   return (
                     <div key={pt.hour} className="flex items-center gap-3">
                       <span className="text-xs text-slate-400 w-12 shrink-0">{hourLabel}</span>
-                      <div className="flex-1 h-3 rounded-full bg-slate-800">
-                        <div className="h-3 rounded-full bg-cyan-400/40" style={{ width: `${pct}%` }} />
+                      <div className="h-3 flex-1 overflow-hidden rounded-full bg-slate-800">
+                        <div className="h-3 w-full origin-left rounded-full bg-cyan-400/40" style={{ transform: `scaleX(${pct / 100})` }} />
                       </div>
                       <span className="text-xs font-bold text-white w-8 text-right">{pt.count}</span>
                     </div>
@@ -352,7 +367,7 @@ export function AuditLogsPage() {
       )}
 
       {/* Filters */}
-      <div className="soc-panel p-5">
+      <FilterRow className="p-5">
         <div className="flex items-center gap-2 mb-4">
           <Filter className="h-5 w-5 text-cyan-400" />
           <h3 className="text-lg font-bold text-white">Filters</h3>
@@ -393,7 +408,7 @@ export function AuditLogsPage() {
           <button onClick={applyFilters} className="soc-button-primary">Apply Filters</button>
           <button onClick={resetFilters} className="soc-button-ghost">Reset Filters</button>
         </div>
-      </div>
+      </FilterRow>
 
       {error ? <ErrorState message={error} onRetry={() => setRefreshTick(v => v + 1)} /> : null}
       {loading ? <SkeletonRows rows={8} /> : null}
@@ -405,10 +420,23 @@ export function AuditLogsPage() {
       {!loading && logs.length > 0 ? (
         <>
           <div className="soc-panel overflow-hidden">
+            <BulkBar
+              active={selectedIds.length > 0}
+              selectedCount={selectedIds.length}
+              title="Selected events"
+              actions={
+                <>
+                  <button type="button" className="row-action" onClick={exportCSV}>Export Selected</button>
+                  <button type="button" className="row-action">Copy Selected</button>
+                  <button type="button" className="row-action" onClick={() => setSelectedIds([])}>Clear</button>
+                </>
+              }
+            />
             <div className="overflow-x-auto">
               <table className="soc-table">
                 <thead>
                   <tr>
+                    <th><input type="checkbox" checked={allSelected} onChange={e => toggleSelectAll(e.target.checked)} /></th>
                     <th>Time</th>
                     <th>Severity</th>
                     <th>Category</th>
@@ -425,18 +453,15 @@ export function AuditLogsPage() {
                     const sev = inferSeverity(log.action);
                     const isSensitive = sev === "critical";
                     return (
-                      <tr key={log.id} className={isSensitive ? "bg-red-400/5" : ""}>
+                      <tr key={log.id} className={isSensitive ? "bg-[rgba(255,59,59,0.03)]" : sev === "warning" ? "bg-[rgba(245,158,11,0.03)]" : ""}>
+                        <td><input type="checkbox" checked={selectedIds.includes(log.id)} onChange={e => toggleSelect(log.id, e.target.checked)} /></td>
                         <td className="whitespace-nowrap text-slate-400 text-sm">{formatDateTime(log.created_at)}</td>
-                        <td><SeverityBadge severity={sev} /></td>
+                        <td><Chip tone={sev === "critical" ? "critical" : sev === "warning" ? "warning" : "info"}>{sev}</Chip></td>
                         <td>
-                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold capitalize ${getCategoryColor(cat)}`}>
-                            {cat}
-                          </span>
+                          <Chip tone={cat === "security" ? "critical" : cat === "admin" || cat === "incident" ? "warning" : "info"}>{cat}</Chip>
                         </td>
                         <td>
-                          <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${getActionColor(log.action)}`}>
-                            {log.action.replace(/_/g, " ")}
-                          </span>
+                          <Chip tone={sev === "critical" ? "critical" : sev === "warning" ? "warning" : "info"}>{log.action.replace(/_/g, " ")}</Chip>
                         </td>
                         <td>
                           <div>
@@ -454,14 +479,13 @@ export function AuditLogsPage() {
                           ) : "N/A"}
                         </td>
                         <td>
-                          <div className="flex items-center gap-1">
-                            <button onClick={() => setSelected(log)} className="soc-button-ghost px-2 py-1 text-xs" title="View details">
-                              <Eye className="h-4 w-4" />
-                            </button>
-                            <button onClick={() => copyToClipboard(JSON.stringify(sanitizeDetails(log.details)), log.id)} className="soc-button-ghost px-2 py-1 text-xs" title="Copy details">
-                              {copiedId === log.id ? <CheckCircle className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
-                            </button>
-                          </div>
+                          <RowActions
+                            items={[
+                              { key: "view", label: <span className="inline-flex items-center gap-1"><Eye className="h-3 w-3" />View Details</span>, onClick: () => setSelected(log), variant: "primary" },
+                              { key: "copy", label: copiedId === log.id ? "Copied" : <span className="inline-flex items-center gap-1"><Copy className="h-3 w-3" />Copy Event</span>, onClick: () => copyToClipboard(JSON.stringify(sanitizeDetails(log.details)), log.id) },
+                              { key: "filter", label: "Filter Similar", onClick: () => { setFilters(prev => ({ ...prev, action: log.action })); setApplied(prev => ({ ...prev, action: log.action })); setPage(1); } },
+                            ]}
+                          />
                         </td>
                       </tr>
                     );
@@ -476,8 +500,8 @@ export function AuditLogsPage() {
 
       {/* Event Details Drawer */}
       {selected ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm" onClick={() => setSelected(null)}>
-          <div className="soc-panel-strong max-h-[85vh] w-full max-w-3xl overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+        <AppModal isOpen={Boolean(selected)} onClose={() => setSelected(null)} size="lg" closeOnOverlayClick panelClassName="soc-panel-strong p-6">
+          <div>
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-xl font-black text-white">Audit Event #{selected.id}</h2>
               <button onClick={() => setSelected(null)} className="soc-button-ghost px-3 py-1">Close</button>
@@ -487,7 +511,9 @@ export function AuditLogsPage() {
               <DetailField label="Action" value={selected.action.replace(/_/g, " ")} />
               <DetailField label="Category" value={inferCategory(selected.action)} capitalize />
               <DetailField label="Severity">
-                <SeverityBadge severity={inferSeverity(selected.action)} />
+                <Chip tone={inferSeverity(selected.action) === "critical" ? "critical" : inferSeverity(selected.action) === "warning" ? "warning" : "info"}>
+                  {inferSeverity(selected.action)}
+                </Chip>
               </DetailField>
               <DetailField label="Timestamp" value={formatDateTime(selected.created_at)} />
               <DetailField label="Actor" value={selected.actor?.full_name ?? "System"} />
@@ -526,7 +552,7 @@ export function AuditLogsPage() {
               </div>
             )}
           </div>
-        </div>
+        </AppModal>
       ) : null}
     </div>
   );

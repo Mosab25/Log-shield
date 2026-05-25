@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     debug: bool = Field(default=False, alias="DEBUG")
 
     database_url: str = Field(
-        default="postgresql+psycopg2://logshield_user:logshield_password@localhost:5432/logshield_db",
+        default="postgresql+psycopg2://logshield_user:logshield_password@127.0.0.1:5432/logshield_db",
         alias="DATABASE_URL",
     )
 
@@ -27,9 +27,8 @@ class Settings(BaseSettings):
 
     cors_origins: str = Field(
         default=(
-            "http://localhost:5173,http://127.0.0.1:5173,"
-            "http://localhost:8080,http://127.0.0.1:8080,"
-            "http://localhost,http://127.0.0.1"
+            "http://127.0.0.1:5173,http://localhost:5173,"
+            "https://logshield-frontend.onrender.com"
         ),
         alias="CORS_ORIGINS",
     )
@@ -63,6 +62,14 @@ class Settings(BaseSettings):
     url_scan_cache_ttl_hours: int = Field(default=24, alias="URL_SCAN_CACHE_TTL_HOURS")
     url_scan_rate_limit_per_minute: int = Field(default=10, alias="URL_SCAN_RATE_LIMIT_PER_MINUTE")
 
+    # Email Breach Checker (RapidAPI provider)
+    rapidapi_breach_key: str = Field(default="", alias="RAPIDAPI_BREACH_KEY")
+    rapidapi_breach_host: str = Field(default="", alias="RAPIDAPI_BREACH_HOST")
+    rapidapi_breach_url: str = Field(default="", alias="RAPIDAPI_BREACH_URL")
+    rapidapi_breach_method: str = Field(default="GET", alias="RAPIDAPI_BREACH_METHOD")
+    rapidapi_breach_email_param: str = Field(default="email", alias="RAPIDAPI_BREACH_EMAIL_PARAM")
+    rapidapi_breach_extra_query: str = Field(default="", alias="RAPIDAPI_BREACH_EXTRA_QUERY")
+
     nvd_api_base_url: str = Field(default="https://services.nvd.nist.gov/rest/json/cves/2.0", alias="NVD_API_BASE_URL")
     nvd_api_key: str = Field(default="", alias="NVD_API_KEY")
     nvd_results_per_page: int = Field(default=20, alias="NVD_RESULTS_PER_PAGE")
@@ -84,6 +91,11 @@ class Settings(BaseSettings):
 
     alert_webhook_url: str = Field(default="", alias="ALERT_WEBHOOK_URL")
     alert_notification_email: str = Field(default="", alias="ALERT_NOTIFICATION_EMAIL")
+    ai_provider: str = Field(default="", alias="AI_PROVIDER")
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_model: str = Field(default="gpt-4o-mini", alias="OPENAI_MODEL")
+    ai_timeout_seconds: int = Field(default=8, alias="AI_TIMEOUT_SECONDS")
+    ai_max_input_chars: int = Field(default=20000, alias="AI_MAX_INPUT_CHARS")
 
     model_config = SettingsConfigDict(
         env_file=(BACKEND_DIR / ".env", BACKEND_DIR / ".env.local"),
@@ -145,6 +157,18 @@ class Settings(BaseSettings):
         if provider == "smtp":
             return self.smtp_configured
         return False
+
+    @property
+    def rapidapi_breach_provider_configured(self) -> bool:
+        return bool(
+            self.rapidapi_breach_key.strip()
+            and self.rapidapi_breach_host.strip()
+            and self.rapidapi_breach_url.strip()
+        )
+
+    @property
+    def rapidapi_breach_provider_settings_complete(self) -> bool:
+        return bool(self.rapidapi_breach_host.strip() and self.rapidapi_breach_url.strip())
 
 
 @lru_cache

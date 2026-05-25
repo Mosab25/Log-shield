@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { BookOpen, Clock, ChevronLeft, ChevronRight, CheckCircle, AlertTriangle, Award, X } from "lucide-react";
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { InfoHint, RecommendedActions } from "../components/Guidance";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
@@ -83,7 +83,7 @@ export function QuizPage() {
       setTimeLeft(res.estimated_minutes * 60);
       setTimerActive(true);
     } catch (err: any) {
-      setError(err?.message || "Failed to load quiz.");
+      setError(toUserErrorMessage(err, "Quiz content is currently unavailable. Please try again."));
     } finally {
       setLoading(false);
     }
@@ -189,7 +189,7 @@ export function QuizPage() {
       setShowResult(true);
       setTimerActive(false);
     } catch (err: any) {
-      setError(err?.message || "Failed to submit quiz.");
+      setError(toUserErrorMessage(err, "Unable to submit quiz right now. Please try again."));
     } finally {
       setSubmitting(false);
     }
@@ -211,14 +211,9 @@ export function QuizPage() {
   }
 
   function getCategoryColor(category: string) {
-    const colors: Record<string, string> = {
-      "Security Fundamentals": "bg-blue-500/20 text-blue-300 border-blue-500/30",
-      "Network Security": "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
-      "Web Application Security": "bg-purple-500/20 text-purple-300 border-purple-500/30",
-      "SOC Operations": "bg-orange-500/20 text-orange-300 border-orange-500/30",
-      "Incident Response": "bg-red-500/20 text-red-300 border-red-500/30"
-    };
-    return colors[category] || "bg-slate-500/20 text-slate-300 border-slate-500/30";
+    return category
+      ? "bg-cyber-cyan/10 text-cyber-cyan border-cyber-cyan/25"
+      : "bg-slate-500/20 text-slate-300 border-slate-500/30";
   }
 
   if (loading) {
@@ -394,10 +389,10 @@ export function QuizPage() {
             <span className="text-cyber-muted">Question {currentQuestion + 1} of {quiz.questions.length}</span>
             <span className="text-cyber-muted">Answered: {answers.length}/{quiz.questions.length}</span>
           </div>
-          <div className="w-full bg-cyber-elevated rounded-full h-2">
+          <div className="w-full overflow-hidden bg-cyber-elevated rounded-full h-2">
             <div 
-              className="bg-gradient-to-r from-cyber-cyan to-cyber-violet h-2 rounded-full transition-all duration-300" 
-              style={{ width: `${((currentQuestion + 1) / quiz.questions.length) * 100}%` }}
+              className="w-full origin-left bg-gradient-to-r from-cyber-cyan to-cyan-300 h-2 rounded-full transition-transform duration-300" 
+              style={{ transform: `scaleX(${(currentQuestion + 1) / quiz.questions.length})` }}
             />
           </div>
         </div>

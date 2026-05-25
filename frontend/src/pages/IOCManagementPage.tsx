@@ -4,8 +4,14 @@ import { Link } from "react-router-dom";
 
 import { apiClient } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { Chip } from "../components/ui/Chip";
+import { RowActions, type RowActionItem } from "../components/ui/RowActions";
+import { BulkBar } from "../components/ui/BulkBar";
+import { FilterRow } from "../components/ui/FilterRow";
+import { PageHeader } from "../components/ui/PageHeader";
 import { InfoHint, RecommendedActions, VerdictBadge } from "../components/Guidance";
-import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
+import { AppModal } from "../components/ui/AppModal";
+import { EmptyState, ErrorState, SkeletonRows } from "../components/UI";
 
 type IOCType = "IP Address" | "Domain" | "URL" | "Hash" | "Email";
 type IOCStatus = "New" | "Under Review" | "Confirmed Malicious" | "Benign" | "Blocked" | "Archived";
@@ -142,14 +148,43 @@ function statusFromReputation(reputation: IOCReputation, blocked: boolean): IOCS
 }
 
 function defangValue(value: string, type: IOCType): string {
-  if (type === "URL") return value.replace(/^https/gi, "hxxps").replace(/^http/gi, "hxxp").replace(/\./g, "[.]");
+  if (type === "URL") {
+    try {
+      const parsed = new URL(value);
+      const protocol = parsed.protocol.toLowerCase() === "https:" ? "hxxps:" : "hxxp:";
+      const host = parsed.host.replace(/\./g, "[.]");
+      return `${protocol}//${host}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    } catch {
+      return value.replace(/^https/gi, "hxxps").replace(/^http/gi, "hxxp").replace(/\./g, "[.]");
+    }
+  }
   if (type === "Domain" || type === "IP Address") return value.replace(/\./g, "[.]");
   return value;
 }
 
+async function writeClipboardText(value: string): Promise<void> {
+  const textArea = document.createElement("textarea");
+  textArea.value = value;
+  textArea.setAttribute("readonly", "true");
+  textArea.style.position = "fixed";
+  textArea.style.left = "-9999px";
+  document.body.appendChild(textArea);
+  textArea.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textArea);
+  if (copied) return;
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+
+  throw new Error("Clipboard unavailable");
+}
+
 function statusClass(status: IOCStatus): string {
   if (status === "Blocked") return "border-red-300/35 bg-red-500/10 text-red-200";
-  if (status === "Confirmed Malicious") return "border-fuchsia-300/35 bg-fuchsia-500/10 text-fuchsia-200";
+  if (status === "Confirmed Malicious") return "border-red-300/35 bg-red-500/10 text-red-200";
   if (status === "Under Review") return "border-amber-300/35 bg-amber-500/10 text-amber-200";
   if (status === "Benign") return "border-emerald-300/35 bg-emerald-500/10 text-emerald-200";
   if (status === "Archived") return "border-slate-500/35 bg-slate-600/20 text-slate-300";
@@ -159,7 +194,7 @@ function statusClass(status: IOCStatus): string {
 function typeClass(type: IOCType): string {
   if (type === "IP Address") return "border-cyan-300/30 bg-cyan-500/10 text-cyan-200";
   if (type === "URL") return "border-amber-300/30 bg-amber-500/10 text-amber-200";
-  if (type === "Domain") return "border-violet-300/30 bg-violet-500/10 text-violet-200";
+  if (type === "Domain") return "border-cyan-300/30 bg-cyan-500/10 text-cyan-200";
   if (type === "Hash") return "border-emerald-300/30 bg-emerald-500/10 text-emerald-200";
   return "border-slate-500/30 bg-slate-600/20 text-slate-300";
 }
@@ -324,6 +359,7 @@ export function IOCManagementPage() {
   const [typeFilter, setTypeFilter] = useState("");
   const [reputationFilter, setReputationFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
 
   async function load() {
     setLoading(true);
@@ -400,12 +436,118 @@ export function IOCManagementPage() {
   }, [items]);
 
   async function copyText(value: string, label: string) {
+    if (!value) {
+      setError("Nothing available to copy.");
+      return;
+    }
+
     try {
-      await navigator.clipboard.writeText(value);
+      await writeClipboardText(value);
       setMessage(`${label} copied.`);
+      setError(null);
     } catch {
       setError("Copy failed. Please try again.");
     }
+  }
+
+  async function defangAndCopy(record: IOCRecord) {
+    const defanged = defangValue(record.value, record.type);
+    const label = record.type === "Hash" ? "Hash does not require defanging; hash" : "Defanged IOC";
+    await copyText(defanged, label);
+  }
+
+  async function blockSelectedIps() {
+    if (!isAdmin || selectedKeys.length === 0) return;
+    const selectedIps = filtered.filter(item => selectedKeys.includes(item.key) && item.type === "IP Address" && item.status !== "Blocked");
+    if (!selectedIps.length) return;
+    for (const ipItem of selectedIps) {
+      await blockIp(ipItem);
+    }
+  }
+
+  function exportSelectedIocs() {
+    if (!selectedKeys.length) return;
+    const selectedItems = filtered.filter(item => selectedKeys.includes(item.key)).map(item => ({
+      value: item.value,
+      type: item.type,
+      reputation: item.reputation,
+      status: item.status,
+      sources: Array.from(item.source),
+      firstSeen: item.firstSeen,
+      lastSeen: item.lastSeen,
+      relatedAlerts: Array.from(item.relatedAlerts),
+      relatedIncidents: Array.from(item.relatedIncidents),
+    }));
+    const blob = new Blob([JSON.stringify(selectedItems, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `logshield-iocs-selected-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function toneFromReputation(rep: IOCReputation) {
+    if (rep === "malicious") return "critical" as const;
+    if (rep === "suspicious") return "warning" as const;
+    if (rep === "safe") return "safe" as const;
+    if (rep === "unknown") return "neutral" as const;
+    return "info" as const;
+  }
+
+  function statusTone(statusValue: IOCStatus) {
+    if (statusValue === "Confirmed Malicious" || statusValue === "Blocked") return "critical" as const;
+    if (statusValue === "Under Review") return "warning" as const;
+    if (statusValue === "Benign") return "safe" as const;
+    return "neutral" as const;
+  }
+
+  function rowTint(item: IOCRecord) {
+    if (item.reputation === "malicious") return { backgroundColor: "rgba(255,59,59,0.03)" };
+    if (item.reputation === "suspicious") return { backgroundColor: "rgba(245,158,11,0.03)" };
+    return undefined;
+  }
+
+  function buildIocActions(item: IOCRecord): RowActionItem[] {
+    const analyzeAction: RowActionItem = {
+      key: "analyze",
+      label: "Analyze IOC",
+      variant: "primary",
+      onClick: () => setSelectedKey(item.key),
+      disabled: !item.value,
+    };
+    const copyAction: RowActionItem = {
+      key: "copy",
+      label: "Copy",
+      onClick: () => void copyText(item.value, "IOC"),
+      disabled: !item.value,
+    };
+    const defangAction: RowActionItem = {
+      key: "defang",
+      label: "Defang",
+      onClick: () => void defangAndCopy(item),
+      disabled: !item.value,
+    };
+    const canBlock = isAdmin && item.type === "IP Address" && item.status !== "Blocked";
+    const blockAction: RowActionItem = {
+      key: "block",
+      label: "Block IP",
+      variant: "danger",
+      onClick: () => void blockIp(item),
+      disabled: !canBlock,
+      title: canBlock ? undefined : "Block IP is available for unblocked IP indicators only.",
+    };
+
+    if (item.reputation === "malicious") {
+      return canBlock ? [blockAction, analyzeAction, copyAction] : [analyzeAction, copyAction, defangAction];
+    }
+    if (item.reputation === "suspicious") {
+      return canBlock ? [analyzeAction, blockAction, copyAction] : [analyzeAction, copyAction, defangAction];
+    }
+    if (item.reputation === "unknown") {
+      return [analyzeAction, copyAction, defangAction];
+    }
+    return [copyAction, defangAction];
   }
 
   return (
@@ -414,7 +556,6 @@ export function IOCManagementPage() {
         eyebrow="Investigation"
         title="IOC Management"
         description="Track IPs, domains, URLs, hashes, and emails observed during investigations."
-        icon={Fingerprint}
       />
 
       <InfoHint title="What is this page?">
@@ -436,10 +577,10 @@ export function IOCManagementPage() {
         <div className="soc-panel p-4"><p className="text-xs font-bold uppercase text-slate-500">Malicious/Suspicious</p><p className="mt-2 text-3xl font-black text-red-200">{summary.bad}</p></div>
         <div className="soc-panel p-4"><p className="text-xs font-bold uppercase text-slate-500">New Today</p><p className="mt-2 text-3xl font-black text-cyan-200">{summary.newToday}</p></div>
         <div className="soc-panel p-4"><p className="text-xs font-bold uppercase text-slate-500">Related Incidents</p><p className="mt-2 text-3xl font-black text-amber-200">{summary.relatedIncidents}</p></div>
-        <div className="soc-panel p-4"><p className="text-xs font-bold uppercase text-slate-500">Blocked IPs</p><p className="mt-2 text-3xl font-black text-orange-200">{summary.blockedIps}</p></div>
+        <div className="soc-panel p-4"><p className="text-xs font-bold uppercase text-slate-500">Blocked IPs</p><p className="mt-2 text-3xl font-black text-red-200">{summary.blockedIps}</p></div>
       </div>
 
-      <section className="soc-panel p-5">
+      <FilterRow>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <div className="relative xl:col-span-2">
             <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-500" />
@@ -474,7 +615,7 @@ export function IOCManagementPage() {
             Refresh
           </button>
         </div>
-      </section>
+      </FilterRow>
 
       {message ? (
         <div className="rounded-xl border border-emerald-300/25 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-200">{message}</div>
@@ -484,28 +625,48 @@ export function IOCManagementPage() {
 
       {!loading ? (
         <div className="soc-panel overflow-hidden">
+          <BulkBar
+            active={selectedKeys.length > 0}
+            selectedCount={selectedKeys.length}
+            actions={
+              <>
+                <button type="button" className="row-action danger" onClick={() => void blockSelectedIps()} disabled={!isAdmin}>Block Selected</button>
+                <button type="button" className="row-action" onClick={exportSelectedIocs}>Export</button>
+                <button type="button" className="row-action danger" disabled title="Delete bulk action unavailable">Delete</button>
+                <button type="button" className="row-action" onClick={() => setSelectedKeys([])}>Clear</button>
+              </>
+            }
+          />
           {filtered.length === 0 ? (
             <div className="p-5">
               <EmptyState title="No IOCs found" description="No indicators match the current filters." icon={ShieldAlert} />
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="soc-table">
+            <div className="table-wrapper">
+              <table className="soc-table tbl">
                 <thead>
                   <tr>
+                    <th />
                     <th>IOC Value</th>
                     <th>Type</th>
                     <th>Reputation</th>
                     <th>Source</th>
                     <th>Last Seen</th>
                     <th>Status</th>
-                    <th>Scope</th>
+                    <th className="col-hide-mobile">Scope</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map(item => (
-                    <tr key={item.key} className="cursor-pointer" onClick={() => setSelectedKey(item.key)}>
+                    <tr key={item.key} className="cursor-pointer" onClick={() => setSelectedKey(item.key)} style={rowTint(item)}>
+                      <td onClick={event => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedKeys.includes(item.key)}
+                          onChange={event => setSelectedKeys(prev => (event.target.checked ? [...prev, item.key] : prev.filter(x => x !== item.key)))}
+                        />
+                      </td>
                       <td>
                         <p className="max-w-[28rem] truncate font-mono text-sm text-white" title={item.value}>{item.value}</p>
                         <p className="mt-1 text-xs text-slate-500">First seen {new Date(item.firstSeen).toLocaleString()}</p>
@@ -513,7 +674,7 @@ export function IOCManagementPage() {
                       <td>
                         <span className={`rounded-full border px-3 py-1 text-xs font-bold ${typeClass(item.type)}`}>{item.type}</span>
                       </td>
-                      <td><VerdictBadge verdict={item.reputation} /></td>
+                      <td><Chip tone={toneFromReputation(item.reputation)}>{item.reputation}</Chip></td>
                       <td>
                         <div className="flex max-w-[18rem] flex-wrap gap-1">
                           {Array.from(item.source).map(source => (
@@ -525,37 +686,13 @@ export function IOCManagementPage() {
                       </td>
                       <td className="text-sm text-slate-300">{new Date(item.lastSeen).toLocaleString()}</td>
                       <td>
-                        <span className={`rounded-full border px-3 py-1 text-xs font-bold ${statusClass(item.status)}`}>{item.status}</span>
+                        <Chip tone={statusTone(item.status)}>{item.status}</Chip>
                       </td>
-                      <td className="text-sm text-slate-300">
+                      <td className="col-hide-mobile text-sm text-slate-300">
                         {item.relatedAlerts.size} alert(s) / {item.relatedIncidents.size} incident(s)
                       </td>
                       <td onClick={event => event.stopPropagation()}>
-                        <div className="flex flex-wrap gap-2 text-xs">
-                          <button type="button" onClick={() => void copyText(item.value, "IOC")} className="font-semibold text-cyan-200 hover:text-white">
-                            <Copy className="mr-1 inline h-3 w-3" />
-                            Copy
-                          </button>
-                          <button type="button" onClick={() => void copyText(defangValue(item.value, item.type), "Defanged IOC")} className="font-semibold text-emerald-200 hover:text-white">
-                            Defang
-                          </button>
-                          {item.type === "URL" ? (
-                            <Link to="/url-scanner" className="font-semibold text-amber-200 hover:text-white">
-                              URL Scanner
-                            </Link>
-                          ) : null}
-                          <Link to="/threat-intelligence?tab=cve" className="font-semibold text-fuchsia-200 hover:text-white">
-                            Threat Intel
-                          </Link>
-                          <Link to="/incidents" className="font-semibold text-slate-200 hover:text-white">
-                            Add to Incident
-                          </Link>
-                          {isAdmin && item.type === "IP Address" && item.status !== "Blocked" ? (
-                            <button type="button" onClick={() => void blockIp(item)} className="font-semibold text-red-200 hover:text-white">
-                              Block IP
-                            </button>
-                          ) : null}
-                        </div>
+                        <RowActions items={buildIocActions(item)} />
                       </td>
                     </tr>
                   ))}
@@ -567,8 +704,8 @@ export function IOCManagementPage() {
       ) : null}
 
       {selected ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
-          <div className="soc-panel-strong max-h-[86vh] w-full max-w-4xl overflow-y-auto p-6">
+        <AppModal isOpen={Boolean(selected)} onClose={() => setSelectedKey(null)} size="xl" panelClassName="soc-panel-strong p-6">
+          <div>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -619,7 +756,7 @@ export function IOCManagementPage() {
                     <Copy className="h-4 w-4" />
                     Copy
                   </button>
-                  <button type="button" onClick={() => void copyText(defangValue(selected.value, selected.type), "Defanged IOC")} className="soc-button-ghost">
+                  <button type="button" onClick={() => void defangAndCopy(selected)} className="soc-button-ghost">
                     Defang
                   </button>
                   {selected.type === "URL" ? (
@@ -638,7 +775,7 @@ export function IOCManagementPage() {
               </section>
             </div>
           </div>
-        </div>
+        </AppModal>
       ) : null}
     </div>
   );

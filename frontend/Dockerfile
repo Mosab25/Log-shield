@@ -2,7 +2,7 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-ARG VITE_API_BASE_URL=http://localhost:8000/api
+ARG VITE_API_BASE_URL=http://127.0.0.1:8000
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 COPY package*.json ./
@@ -17,7 +17,7 @@ COPY --from=build /app/dist /usr/share/nginx/html
 
 RUN cat > /etc/nginx/conf.d/default.conf <<'EOF'
 server {
-    listen 80;
+    listen 5173;
     server_name _;
 
     root /usr/share/nginx/html;
@@ -35,6 +35,6 @@ server {
 }
 EOF
 
-EXPOSE 80
+EXPOSE 5173
 
 CMD ["nginx", "-g", "daemon off;"]

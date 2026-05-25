@@ -2,10 +2,16 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { BookOpen, Filter, Search, Clock, Users, Award, AlertTriangle, CheckCircle, TrendingUp, BarChart3, Target, Plus, Settings, Trophy, Activity } from "lucide-react";
 import { apiClient } from "../api/client";
+import { Chip } from "../components/ui/Chip";
+import { FilterRow } from "../components/ui/FilterRow";
+import { PageHeader } from "../components/ui/PageHeader";
+import { StatCard } from "../components/ui/StatCard";
 import { InfoHint, RecommendedActions } from "../components/Guidance";
+import { TabTransition } from "../components/PageTransition";
 import { Pagination } from "../components/Pagination";
-import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
+import { EmptyState, ErrorState, SkeletonRows } from "../components/UI";
 import { useAuth } from "../auth/AuthContext";
+import { useAuthGate } from "../auth/useAuthGate";
 
 interface Quiz {
   id: number;
@@ -54,8 +60,137 @@ interface QuizSummary {
   attempts_today: number;
 }
 
+const PUBLIC_QUIZZES: Quiz[] = [
+  {
+    id: 1001,
+    slug: "security-fundamentals-preview",
+    title: "Security Fundamentals Preview",
+    description: "A guided introduction to core SOC concepts, alerts, severity, and safe investigation behavior.",
+    category: "Security Fundamentals",
+    type: "awareness",
+    difficulty: "beginner",
+    question_count: 8,
+    estimated_minutes: 10,
+    pass_percentage: 70,
+    is_active: true,
+    created_at: new Date(0).toISOString(),
+    updated_at: new Date(0).toISOString(),
+  },
+  {
+    id: 1002,
+    slug: "phishing-url-triage-preview",
+    title: "Phishing and URL Triage Preview",
+    description: "Learn how analysts review suspicious links, defang indicators, and connect URL findings to incidents.",
+    category: "Web Application Security",
+    type: "scenario",
+    difficulty: "intermediate",
+    question_count: 10,
+    estimated_minutes: 15,
+    pass_percentage: 75,
+    is_active: true,
+    created_at: new Date(0).toISOString(),
+    updated_at: new Date(0).toISOString(),
+  },
+  {
+    id: 1003,
+    slug: "incident-response-preview",
+    title: "Incident Response Workflow Preview",
+    description: "Practice the order of evidence review, containment, reporting, and recovery monitoring.",
+    category: "Incident Response",
+    type: "workflow",
+    difficulty: "advanced",
+    question_count: 12,
+    estimated_minutes: 20,
+    pass_percentage: 80,
+    is_active: true,
+    created_at: new Date(0).toISOString(),
+    updated_at: new Date(0).toISOString(),
+  },
+  {
+    id: 1004,
+    slug: "password-security-preview",
+    title: "Password Security Preview",
+    description: "Review password hygiene, MFA habits, password manager basics, and account recovery safety.",
+    category: "Identity Protection",
+    type: "awareness",
+    difficulty: "beginner",
+    question_count: 8,
+    estimated_minutes: 10,
+    pass_percentage: 70,
+    is_active: true,
+    created_at: new Date(0).toISOString(),
+    updated_at: new Date(0).toISOString(),
+  },
+  {
+    id: 1005,
+    slug: "social-engineering-preview",
+    title: "Social Engineering Preview",
+    description: "Learn how attackers manipulate trust, urgency, and routine workflows to bypass defenses.",
+    category: "Human Risk",
+    type: "scenario",
+    difficulty: "intermediate",
+    question_count: 10,
+    estimated_minutes: 15,
+    pass_percentage: 75,
+    is_active: true,
+    created_at: new Date(0).toISOString(),
+    updated_at: new Date(0).toISOString(),
+  },
+  {
+    id: 1006,
+    slug: "safe-browsing-preview",
+    title: "Safe Browsing Preview",
+    description: "Practice spotting suspicious domains, redirects, downloads, and unsafe browser prompts.",
+    category: "Safe Browsing",
+    type: "awareness",
+    difficulty: "beginner",
+    question_count: 8,
+    estimated_minutes: 10,
+    pass_percentage: 70,
+    is_active: true,
+    created_at: new Date(0).toISOString(),
+    updated_at: new Date(0).toISOString(),
+  },
+  {
+    id: 1007,
+    slug: "incident-reporting-preview",
+    title: "Incident Reporting Basics Preview",
+    description: "Understand when and how to report suspicious activity with useful context for analysts.",
+    category: "Incident Response",
+    type: "workflow",
+    difficulty: "beginner",
+    question_count: 6,
+    estimated_minutes: 8,
+    pass_percentage: 70,
+    is_active: true,
+    created_at: new Date(0).toISOString(),
+    updated_at: new Date(0).toISOString(),
+  },
+];
+
+const PUBLIC_METADATA: QuizMetadata = {
+  categories: Array.from(new Set(PUBLIC_QUIZZES.map(quiz => quiz.category))),
+  types: Array.from(new Set(PUBLIC_QUIZZES.map(quiz => quiz.type))),
+  difficulties: Array.from(new Set(PUBLIC_QUIZZES.map(quiz => quiz.difficulty))),
+};
+
+function filterPublicQuizzes(quizzes: Quiz[], filters: { category: string; type: string; difficulty: string; is_active: boolean }, search: string) {
+  const q = search.trim().toLowerCase();
+  return quizzes.filter(quiz => {
+    if (filters.category && quiz.category !== filters.category) return false;
+    if (filters.type && quiz.type !== filters.type) return false;
+    if (filters.difficulty && quiz.difficulty !== filters.difficulty) return false;
+    if (!q) return true;
+    return [quiz.title, quiz.description ?? "", quiz.category, quiz.type, quiz.difficulty]
+      .join(" ")
+      .toLowerCase()
+      .includes(q);
+  });
+}
+
 export function AwarenessPage() {
-  const { user } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { requireAuth, loginRequiredModal } = useAuthGate();
   const navigate = useNavigate();
   const location = useLocation();
   const activeView = new URLSearchParams(location.search).get("view") || "overview";
@@ -79,8 +214,18 @@ export function AwarenessPage() {
   const pageSize = 12;
 
   async function loadQuizzes() {
+    if (authLoading) return;
     setLoading(true);
     setError(null);
+    if (!isAuthenticated) {
+      const filtered = filterPublicQuizzes(PUBLIC_QUIZZES, filters, search);
+      const skip = (page - 1) * pageSize;
+      setQuizzes(filtered.slice(skip, skip + pageSize));
+      setTotal(filtered.length);
+      setLoading(false);
+      return;
+    }
+
     try {
       const skip = (page - 1) * pageSize;
       let url = `/awareness/quizzes?skip=${skip}&limit=${pageSize}&is_active=${filters.is_active}`;
@@ -94,24 +239,37 @@ export function AwarenessPage() {
       setQuizzes(Array.isArray(res.items) ? res.items : []);
       setTotal(Number(res.total ?? 0));
     } catch (err: any) {
-      setQuizzes([]);
-      setTotal(0);
-      setError(err?.message || "Failed to load quizzes.");
+      const filtered = filterPublicQuizzes(PUBLIC_QUIZZES, filters, search);
+      const skip = (page - 1) * pageSize;
+      setQuizzes(filtered.slice(skip, skip + pageSize));
+      setTotal(filtered.length);
+      setMetadata(PUBLIC_METADATA);
+      setError("Training content is currently unavailable. Showing local fallback lessons.");
     } finally {
       setLoading(false);
     }
   }
 
   async function loadMetadata() {
+    if (!isAuthenticated) {
+      setMetadata(PUBLIC_METADATA);
+      return;
+    }
+
     try {
       const meta = await apiClient.get<QuizMetadata>("/awareness/quizzes/metadata");
       setMetadata(meta);
     } catch (e) {
-      // Metadata is optional
+      setMetadata(PUBLIC_METADATA);
     }
   }
 
   async function loadUserAttempts() {
+    if (!isAuthenticated) {
+      setUserAttempts([]);
+      return;
+    }
+
     try {
       const res = await apiClient.get<any>("/awareness/my-scores?limit=5");
       setUserAttempts(Array.isArray(res.items) ? res.items : []);
@@ -121,7 +279,7 @@ export function AwarenessPage() {
   }
 
   async function loadSummary() {
-    if (user?.role?.name !== "admin") return;
+    if (!isAuthenticated || user?.role?.name !== "admin") return;
     try {
       const summaryData = await apiClient.get<QuizSummary>("/awareness/summary");
       setSummary(summaryData);
@@ -130,8 +288,13 @@ export function AwarenessPage() {
     }
   }
 
-  useEffect(() => { void loadQuizzes(); }, [page, filters, search]);
-  useEffect(() => { void loadMetadata(); void loadUserAttempts(); void loadSummary(); }, [user]);
+  useEffect(() => { void loadQuizzes(); }, [page, filters, search, isAuthenticated, authLoading]);
+  useEffect(() => {
+    if (authLoading) return;
+    void loadMetadata();
+    void loadUserAttempts();
+    void loadSummary();
+  }, [user, isAuthenticated, authLoading]);
 
   const visible = useMemo(() => {
     if (!search) return quizzes;
@@ -168,14 +331,9 @@ export function AwarenessPage() {
   }
 
   function getCategoryColor(category: string) {
-    const colors: Record<string, string> = {
-      "Security Fundamentals": "bg-blue-500/20 text-blue-300 border-blue-500/30",
-      "Network Security": "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
-      "Web Application Security": "bg-purple-500/20 text-purple-300 border-purple-500/30",
-      "SOC Operations": "bg-orange-500/20 text-orange-300 border-orange-500/30",
-      "Incident Response": "bg-red-500/20 text-red-300 border-red-500/30"
-    };
-    return colors[category] || "bg-cyber-elevated/40 text-cyber-muted border-cyber-muted/25";
+    return category
+      ? "bg-cyber-cyan/10 text-cyber-cyan border-cyber-cyan/25"
+      : "bg-cyber-elevated/40 text-cyber-muted border-cyber-muted/25";
   }
 
   const canManage = user?.role?.name === "admin" || user?.role?.name === "analyst";
@@ -218,11 +376,11 @@ export function AwarenessPage() {
     return (
       <div className="space-y-6">
         {managementTabs}
+        <TabTransition activeKey={`admin-${activeView}`} className="space-y-6">
         <PageHeader 
-          eyebrow="Security Awareness Administration" 
-          title="Training Management Dashboard" 
-          description="Manage cybersecurity training programs, monitor user performance, and analyze training effectiveness." 
-          icon={Settings} 
+          eyebrow="SECURITY AWARENESS" 
+          title="Awareness Hub" 
+          description="Train users, measure knowledge, and reduce human-factor security risk." 
         />
 
         <InfoHint title="Educational objective">
@@ -232,44 +390,17 @@ export function AwarenessPage() {
         {/* Admin Summary Cards */}
         {summary && (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <div className="soc-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <Activity className="h-8 w-8 text-blue-400" />
-                <span className="text-2xl font-bold text-cyber-text">{summary.total_attempts}</span>
-              </div>
-              <p className="text-cyber-muted text-sm">Total Attempts</p>
-            </div>
-            
-            <div className="soc-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <Users className="h-8 w-8 text-green-400" />
-                <span className="text-2xl font-bold text-cyber-text">{summary.unique_users}</span>
-              </div>
-              <p className="text-cyber-muted text-sm">Unique Users</p>
-            </div>
-            
-            <div className="soc-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <TrendingUp className="h-8 w-8 text-yellow-400" />
-                <span className="text-2xl font-bold text-cyber-text">{summary.average_score}%</span>
-              </div>
-              <p className="text-cyber-muted text-sm">Average Score</p>
-            </div>
-            
-            <div className="soc-panel p-6">
-              <div className="flex items-center justify-between mb-2">
-                <Target className="h-8 w-8 text-purple-400" />
-                <span className="text-2xl font-bold text-cyber-text">{summary.pass_rate}%</span>
-              </div>
-              <p className="text-cyber-muted text-sm">Pass Rate</p>
-            </div>
+            <StatCard label="Total Attempts" value={summary.total_attempts} icon={<Activity className="h-4 w-4" />} />
+            <StatCard label="Unique Users" value={summary.unique_users} icon={<Users className="h-4 w-4" />} />
+            <StatCard label="Average Score" value={`${summary.average_score}%`} icon={<TrendingUp className="h-4 w-4" />} />
+            <StatCard label="Pass Rate" value={`${summary.pass_rate}%`} icon={<Target className="h-4 w-4" />} />
           </div>
         )}
 
         {/* Admin Action Buttons */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <button onClick={() => navigate('/awareness/manage')} className="soc-panel p-6 text-left hover:bg-cyber-elevated transition-colors">
-            <Plus className="h-8 w-8 text-blue-400 mb-3" />
+            <Plus className="h-8 w-8 text-cyan-400 mb-3" />
             <h3 className="font-bold text-cyber-text mb-1">Manage Quizzes</h3>
             <p className="text-sm text-cyber-muted">Create and edit training quizzes</p>
           </button>
@@ -287,7 +418,7 @@ export function AwarenessPage() {
           </button>
           
           <button onClick={() => navigate('/awareness?view=catalog')} className="soc-panel p-6 text-left hover:bg-cyber-elevated transition-colors">
-            <BookOpen className="h-8 w-8 text-purple-400 mb-3" />
+            <BookOpen className="h-8 w-8 text-cyber-cyan mb-3" />
             <h3 className="font-bold text-cyber-text mb-1">Available Quizzes</h3>
             <p className="text-sm text-cyber-muted">View training catalog</p>
           </button>
@@ -296,7 +427,7 @@ export function AwarenessPage() {
         {/* Recent Activity */}
         <div className="soc-panel p-6">
           <h3 className="text-lg font-bold text-cyber-text mb-4 flex items-center gap-2">
-            <Activity className="h-5 w-5 text-blue-400" />
+            <Activity className="h-5 w-5 text-cyan-400" />
             Recent Activity
           </h3>
           {userAttempts.length > 0 ? (
@@ -325,6 +456,7 @@ export function AwarenessPage() {
             <EmptyState title="No recent activity" description="No quiz attempts have been recorded recently." icon={Activity} />
           )}
         </div>
+        </TabTransition>
       </div>
     );
   }
@@ -334,12 +466,12 @@ export function AwarenessPage() {
     return (
       <div className="space-y-6">
         {managementTabs}
-        <PageHeader 
-          eyebrow="Security Awareness Management" 
-          title="Quiz Management Center" 
-          description="Create, manage, and monitor cybersecurity training quizzes and assessments." 
-          icon={Settings} 
-        />
+        <TabTransition activeKey={`analyst-${activeView}`} className="space-y-6">
+      <PageHeader 
+        eyebrow="SECURITY AWARENESS" 
+        title="Awareness Hub" 
+        description="Train users, measure knowledge, and reduce human-factor security risk." 
+      />
 
         <InfoHint title="How analysts should use this">
           Build quizzes around real SOC scenarios: phishing triage, failed logins, suspicious URLs, incident handoff, and evidence review.
@@ -348,7 +480,7 @@ export function AwarenessPage() {
         {/* Analyst Action Buttons */}
         <div className="grid gap-4 md:grid-cols-3">
           <button onClick={() => navigate('/awareness/manage')} className="soc-panel p-6 text-left hover:bg-cyber-elevated transition-colors">
-            <Plus className="h-8 w-8 text-blue-400 mb-3" />
+            <Plus className="h-8 w-8 text-cyan-400 mb-3" />
             <h3 className="font-bold text-cyber-text mb-1">Create Quiz</h3>
             <p className="text-sm text-cyber-muted">Design new training assessments</p>
           </button>
@@ -360,7 +492,7 @@ export function AwarenessPage() {
           </button>
           
           <button onClick={() => navigate('/awareness?view=catalog')} className="soc-panel p-6 text-left hover:bg-cyber-elevated transition-colors">
-            <BookOpen className="h-8 w-8 text-purple-400 mb-3" />
+            <BookOpen className="h-8 w-8 text-cyber-cyan mb-3" />
             <h3 className="font-bold text-cyber-text mb-1">Available Quizzes</h3>
             <p className="text-sm text-cyber-muted">Browse training catalog</p>
           </button>
@@ -396,6 +528,7 @@ export function AwarenessPage() {
             </div>
           </div>
         )}
+        </TabTransition>
       </div>
     );
   }
@@ -404,16 +537,21 @@ export function AwarenessPage() {
   return (
     <div className="space-y-6">
       {managementTabs}
+      <TabTransition activeKey={`viewer-${activeView}`} className="space-y-6">
       <PageHeader 
-        eyebrow="Security Awareness" 
-        title="Cybersecurity Training & Assessment" 
-        description="Learn cybersecurity concepts, take guided quizzes, review explanations, and track improvement over time." 
-        icon={BookOpen} 
+        eyebrow="SECURITY AWARENESS" 
+        title="Awareness Hub" 
+        description="Train users, measure knowledge, and reduce human-factor security risk." 
       />
 
       <InfoHint title="How to learn from quizzes">
         After submission, review each explanation. Focus on why an answer is correct, then connect the concept to real LogShield pages like alerts, logs, URL Scanner, and incidents.
       </InfoHint>
+      {!isAuthenticated ? (
+        <InfoHint title="Public read-only mode">
+          You can browse the awareness catalog and learning paths. Starting quizzes, submitting answers, and saving scores require a LogShield account.
+        </InfoHint>
+      ) : null}
 
       <RecommendedActions
         title="Learning path"
@@ -457,7 +595,7 @@ export function AwarenessPage() {
       )}
 
       {/* Filters */}
-      <div className="soc-panel p-4">
+      <FilterRow>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Filter className="h-4 w-4 text-cyber-muted" />
@@ -500,7 +638,7 @@ export function AwarenessPage() {
             </div>
           </div>
         )}
-      </div>
+      </FilterRow>
 
       {error ? <ErrorState message={error} onRetry={() => void loadQuizzes()} /> : null}
       {loading ? <SkeletonRows rows={6} /> : null}
@@ -524,15 +662,9 @@ export function AwarenessPage() {
                     </div>
                     
                     <div className="flex flex-wrap gap-2 mb-4">
-                      <span className={`rounded-full border px-2 py-1 text-xs font-bold ${getCategoryColor(quiz.category)}`}>
-                        {quiz.category}
-                      </span>
-                      <span className={`rounded-full border px-2 py-1 text-xs font-bold ${getDifficultyColor(quiz.difficulty)}`}>
-                        {quiz.difficulty.charAt(0).toUpperCase() + quiz.difficulty.slice(1)}
-                      </span>
-                      <span className="rounded-full border border-cyan-400/15 px-2 py-1 text-xs font-bold text-cyber-muted">
-                        {quiz.type}
-                      </span>
+                      <Chip tone="safe">{quiz.category}</Chip>
+                      <Chip tone={quiz.difficulty === "advanced" ? "critical" : quiz.difficulty === "intermediate" ? "warning" : "safe"}>{quiz.difficulty}</Chip>
+                      <Chip tone="info">{quiz.type}</Chip>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
@@ -551,16 +683,16 @@ export function AwarenessPage() {
                         <span className="text-cyber-muted">Passing Score</span>
                         <span className="text-cyber-text font-semibold">{quiz.pass_percentage}%</span>
                       </div>
-                      <div className="w-full bg-cyber-elevated rounded-full h-2">
+                      <div className="w-full overflow-hidden bg-cyber-elevated rounded-full h-2">
                         <div 
-                          className="bg-gradient-to-r from-blue-500 to-cyan-500 h-2 rounded-full" 
-                          style={{ width: `${quiz.pass_percentage}%` }}
+                          className="w-full origin-left bg-gradient-to-r from-cyber-cyan to-cyan-300 h-2 rounded-full" 
+                          style={{ transform: `scaleX(${quiz.pass_percentage / 100})` }}
                         />
                       </div>
                     </div>
 
                     <button 
-                      onClick={() => navigate(`/awareness/quiz/${quiz.slug}`)}
+                      onClick={() => requireAuth(() => navigate(`/awareness/quiz/${quiz.slug}`))}
                       className="w-full soc-button-primary"
                     >
                       Start Quiz
@@ -574,6 +706,8 @@ export function AwarenessPage() {
           )}
         </div>
       ) : null}
+      {loginRequiredModal}
+      </TabTransition>
     </div>
   );
 }

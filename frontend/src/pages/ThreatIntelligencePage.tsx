@@ -1,9 +1,11 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { Database, Globe, ShieldAlert } from "lucide-react";
+import { Database, Globe } from "lucide-react";
 
+import { Chip } from "../components/ui/Chip";
 import { InfoHint } from "../components/Guidance";
-import { PageHeader } from "../components/UI";
+import { TabTransition } from "../components/PageTransition";
+import { PageHeader } from "../components/ui/PageHeader";
 import { ThreatIntelSearchPage } from "./ThreatIntelSearchPage";
 import { ThreatsPage } from "./ThreatsPage";
 
@@ -52,10 +54,9 @@ export function ThreatIntelligencePage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Threat Intelligence"
+        eyebrow="THREAT INTELLIGENCE"
         title="Threat Intelligence"
-        description="Search CVEs, manage curated threat knowledge, and connect vulnerability context to SOC investigations."
-        icon={ShieldAlert}
+        description="Search indicators, CVEs, MITRE techniques, and external intelligence context."
       />
 
       <InfoHint title="How to use this workspace">
@@ -72,18 +73,21 @@ export function ThreatIntelligencePage() {
               type="button"
               onClick={() => switchTab(tab.id)}
               className={`soc-panel p-4 text-left transition ${
-                active ? "border-cyber-cyan/50 bg-gradient-to-br from-cyber-cyan/15 to-cyber-violet/10 shadow-lg shadow-cyber-950/30" : "hover:border-cyber-violet/30 hover:bg-cyber-elevated/50"
+                active ? "border-cyber-cyan/50 bg-gradient-to-br from-cyber-cyan/15 to-cyber-cyan/5 shadow-lg shadow-cyber-950/30" : "hover:border-cyber-cyan/30 hover:bg-cyber-elevated/50"
               }`}
               aria-pressed={active}
             >
               <span className="flex items-start gap-3">
                 <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border ${
-                  active ? "border-cyber-cyan/50 bg-gradient-to-br from-cyber-cyan/20 to-cyber-violet/15 text-cyber-cyan" : "border-cyber-border-cyan bg-cyber-surface/70 text-cyber-muted"
+                  active ? "border-cyber-cyan/50 bg-gradient-to-br from-cyber-cyan/20 to-cyber-cyan/5 text-cyber-cyan" : "border-cyber-border-cyan bg-cyber-surface/70 text-cyber-muted"
                 }`}>
                   <Icon className="h-5 w-5" />
                 </span>
                 <span className="min-w-0">
-                  <span className="block font-black text-cyber-text">{tab.label}</span>
+                  <span className="block font-black text-cyber-text">
+                    {tab.label}
+                    <span className="ml-2 inline-block align-middle"><Chip tone="violet">Research</Chip></span>
+                  </span>
                   <span className="mt-1 block text-sm leading-6 text-cyber-muted">{tab.description}</span>
                 </span>
               </span>
@@ -92,7 +96,9 @@ export function ThreatIntelligencePage() {
         })}
       </section>
 
-      {activeTab === "knowledge" ? <ThreatsPage embedded /> : <ThreatIntelSearchPage embedded />}
+      <TabTransition activeKey={activeTab}>
+        {activeTab === "knowledge" ? <ThreatsPage embedded /> : <ThreatIntelSearchPage embedded />}
+      </TabTransition>
     </div>
   );
 }

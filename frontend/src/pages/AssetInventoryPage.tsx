@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, Search, ShieldAlert, X } from "lucide-react";
+import { Search, ShieldAlert, X } from "lucide-react";
 
 import { apiClient } from "../api/client";
 import { InfoHint, RecommendedActions } from "../components/Guidance";
-import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/UI";
+import { AppModal } from "../components/ui/AppModal";
+import { BulkBar } from "../components/ui/BulkBar";
+import { Chip } from "../components/ui/Chip";
+import { EmptyState } from "../components/ui/EmptyState";
+import { FilterRow } from "../components/ui/FilterRow";
+import { PageHeader } from "../components/ui/PageHeader";
+import { RowActions } from "../components/ui/RowActions";
+import { StatCard } from "../components/ui/StatCard";
+import { ErrorState, SkeletonRows } from "../components/UI";
 
 type AssetType =
   | "Server"
@@ -76,6 +84,11 @@ interface DerivedAsset {
   relatedAlertIds: Set<number>;
   relatedIncidentIds: Set<number>;
 }
+
+type AssetActionPanel = {
+  mode: "scan" | "vulns";
+  assets: DerivedAsset[];
+};
 
 interface FileAnalyzerFinding {
   id: string;
@@ -156,7 +169,7 @@ function statusBadgeClass(status: AssetStatus): string {
 function riskTextClass(score: number): string {
   const level = riskLevelFromScore(score);
   if (level === "critical") return "text-red-200";
-  if (level === "high") return "text-orange-200";
+  if (level === "high") return "text-red-200";
   if (level === "medium") return "text-amber-200";
   return "text-emerald-200";
 }
@@ -444,6 +457,9 @@ export function AssetInventoryPage() {
   const [status, setStatus] = useState("");
   const [hasOpenAlerts, setHasOpenAlerts] = useState(false);
   const [ipFilter, setIpFilter] = useState("");
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
+  const [assetActionPanel, setAssetActionPanel] = useState<AssetActionPanel | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -500,6 +516,7 @@ export function AssetInventoryPage() {
   }, [assets, search, assetType, riskLevel, status, hasOpenAlerts, ipFilter]);
 
   const selected = filtered.find(asset => asset.key === selectedKey) ?? assets.find(asset => asset.key === selectedKey) ?? null;
+  const selectedAssets = assets.filter(asset => selectedKeys.includes(asset.key));
 
   const summary = useMemo(() => {
     const total = assets.length;
@@ -510,13 +527,51 @@ export function AssetInventoryPage() {
     return { total, atRisk, critical, recentlySeen, withOpenAlerts };
   }, [assets]);
 
+  function openScanPreview(asset: DerivedAsset) {
+    setActionMessage(null);
+    setAssetActionPanel({ mode: "scan", assets: [asset] });
+  }
+
+  function openSelectedScanPreview() {
+    if (selectedAssets.length === 0) return;
+    setActionMessage(null);
+    setAssetActionPanel({ mode: "scan", assets: selectedAssets });
+  }
+
+  function openVulnerabilityPanel(asset: DerivedAsset) {
+    setActionMessage(null);
+    setAssetActionPanel({ mode: "vulns", assets: [asset] });
+  }
+
+  function exportSelectedAssets() {
+    if (selectedAssets.length === 0) return;
+    const payload = selectedAssets.map(asset => ({
+      asset: asset.assetName,
+      type: asset.assetType,
+      ip_address: asset.ipAddress,
+      owner: asset.owner,
+      risk_score: asset.riskScore,
+      open_alerts: asset.openAlerts,
+      related_incidents: asset.relatedIncidents,
+      status: asset.status,
+      last_seen: asset.lastSeen,
+    }));
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `logshield-assets-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setActionMessage(`Exported ${selectedAssets.length} selected asset${selectedAssets.length === 1 ? "" : "s"}.`);
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Asset & Risk"
+        eyebrow="ASSET VISIBILITY"
         title="Asset Inventory"
-        description="Track systems, users, hosts, and services affected by alerts, logs, file analysis, and incidents."
-        icon={Boxes}
+        description="Track monitored assets, exposure, risk levels, and related security activity."
       />
 
       <InfoHint title="What is this page?">
@@ -534,14 +589,14 @@ export function AssetInventoryPage() {
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <div className="soc-panel p-4"><p className="text-xs font-bold uppercase text-slate-500">Total Assets</p><p className="mt-2 text-3xl font-black text-white">{summary.total}</p></div>
-        <div className="soc-panel p-4"><p className="text-xs font-bold uppercase text-slate-500">Assets At Risk</p><p className="mt-2 text-3xl font-black text-amber-200">{summary.atRisk}</p></div>
-        <div className="soc-panel p-4"><p className="text-xs font-bold uppercase text-slate-500">Critical Assets</p><p className="mt-2 text-3xl font-black text-red-200">{summary.critical}</p></div>
-        <div className="soc-panel p-4"><p className="text-xs font-bold uppercase text-slate-500">Recently Seen</p><p className="mt-2 text-3xl font-black text-cyan-200">{summary.recentlySeen}</p></div>
-        <div className="soc-panel p-4"><p className="text-xs font-bold uppercase text-slate-500">With Open Alerts</p><p className="mt-2 text-3xl font-black text-orange-200">{summary.withOpenAlerts}</p></div>
+        <StatCard label="Total Assets" value={summary.total} />
+        <StatCard label="Assets At Risk" value={<span className="text-[var(--status-warning)]">{summary.atRisk}</span>} />
+        <StatCard label="Critical Assets" value={<span className="text-[var(--status-critical)]">{summary.critical}</span>} />
+        <StatCard label="Recently Seen" value={<span className="text-[var(--brand)]">{summary.recentlySeen}</span>} />
+        <StatCard label="With Open Alerts" value={<span className="text-[var(--status-warning)]">{summary.withOpenAlerts}</span>} />
       </div>
 
-      <section className="soc-panel p-5">
+      <FilterRow>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
           <div className="relative xl:col-span-2">
             <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-500" />
@@ -574,54 +629,92 @@ export function AssetInventoryPage() {
           <input type="checkbox" checked={hasOpenAlerts} onChange={event => setHasOpenAlerts(event.target.checked)} className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-cyan-400" />
           Has open alerts only
         </label>
-      </section>
+      </FilterRow>
 
       {error ? <ErrorState message={error} onRetry={() => void load()} /> : null}
       {loading ? <SkeletonRows rows={6} /> : null}
 
       {!loading ? (
         <div className="soc-panel overflow-hidden">
+          <BulkBar
+            active={selectedKeys.length > 0}
+            selectedCount={selectedKeys.length}
+            actions={
+              <>
+                <button type="button" className="row-action primary" onClick={openSelectedScanPreview}>Scan Selected</button>
+                <button type="button" className="row-action" onClick={exportSelectedAssets}>Export</button>
+                <button type="button" className="row-action" onClick={() => setSelectedKeys([])}>Clear</button>
+              </>
+            }
+          />
           {filtered.length === 0 ? (
             <div className="p-5">
-              <EmptyState title="No assets found" description="No assets match the current filters." icon={ShieldAlert} />
+              <EmptyState title="No assets found" description="No assets match the current filters." icon={<ShieldAlert className="h-5 w-5" />} />
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="soc-table">
+            <div className="table-wrapper">
+              <table className="soc-table tbl">
                 <thead>
                   <tr>
+                    <th />
                     <th>Asset Name</th>
                     <th>Type</th>
                     <th>IP Address</th>
-                    <th>Owner/User</th>
+                    <th className="col-hide-mobile">OS</th>
                     <th>Risk Score</th>
-                    <th>Open Alerts</th>
-                    <th>Related Incidents</th>
-                    <th>Last Seen</th>
+                    <th className="col-hide-mobile">Vulnerabilities</th>
                     <th>Status</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map(asset => (
-                    <tr key={asset.key} className="cursor-pointer" onClick={() => setSelectedKey(asset.key)}>
+                  {filtered.map(asset => {
+                    const riskTone = asset.riskScore > 70 ? "critical" : asset.riskScore > 40 ? "warning" : "safe";
+                    const statusTone = asset.status === "Active" ? "safe" : asset.status === "Inactive" ? "neutral" : asset.status === "Unknown" ? "neutral" : "warning";
+                    const rowStyle = asset.riskScore > 70
+                      ? { backgroundColor: "rgba(255,59,59,0.03)" }
+                      : asset.riskScore > 40
+                        ? { backgroundColor: "rgba(245,158,11,0.03)" }
+                        : undefined;
+                    return (
+                    <tr key={asset.key} className="cursor-pointer" onClick={() => setSelectedKey(asset.key)} style={rowStyle}>
+                      <td onClick={event => event.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedKeys.includes(asset.key)}
+                          onChange={event => setSelectedKeys(prev => event.target.checked ? [...prev, asset.key] : prev.filter(key => key !== asset.key))}
+                        />
+                      </td>
                       <td>
                         <p className="font-semibold text-white">{asset.assetName}</p>
                         <p className="text-xs text-slate-500">{asset.sources.size} data source(s)</p>
                       </td>
-                      <td>{asset.assetType}</td>
+                      <td><Chip tone="info">{asset.assetType}</Chip></td>
                       <td className="font-mono text-sm text-slate-300">{asset.ipAddress || "-"}</td>
-                      <td>{asset.owner || "-"}</td>
-                      <td className={`font-bold ${riskTextClass(asset.riskScore)}`}>{asset.riskScore}</td>
-                      <td>{asset.openAlerts}</td>
-                      <td>{asset.relatedIncidents}</td>
-                      <td>{asset.lastSeen ? new Date(asset.lastSeen).toLocaleString() : "-"}</td>
+                      <td className="col-hide-mobile">{asset.owner || "-"}</td>
+                      <td className={`font-bold ${riskTextClass(asset.riskScore)}`}>
+                        <div className="flex items-center gap-2">
+                          <span>{asset.riskScore}</span>
+                          <div className="h-1 w-16 rounded bg-white/10">
+                            <div className={`h-1 rounded ${asset.riskScore > 70 ? "bg-[var(--status-critical)]" : asset.riskScore > 40 ? "bg-[var(--status-warning)]" : "bg-[var(--status-safe)]"}`} style={{ width: `${Math.min(100, asset.riskScore)}%` }} />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="col-hide-mobile">{asset.vulnerabilities}</td>
                       <td>
-                        <span className={`rounded-full border px-3 py-1 text-xs font-bold uppercase ${statusBadgeClass(asset.status)}`}>
-                          {asset.status}
-                        </span>
+                        <Chip tone={statusTone}>{asset.status}</Chip>
+                      </td>
+                      <td onClick={event => event.stopPropagation()}>
+                        <RowActions
+                          items={[
+                            { key: "scan", label: "Scan", variant: "primary" as const, onClick: () => openScanPreview(asset) },
+                            { key: "view", label: "View Details", onClick: () => setSelectedKey(asset.key) },
+                            ...(riskTone !== "safe" ? [{ key: "vulns", label: "View Vulns", variant: "danger" as const, onClick: () => openVulnerabilityPanel(asset) }] : []),
+                          ].slice(0, 3)}
+                        />
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>
@@ -630,8 +723,8 @@ export function AssetInventoryPage() {
       ) : null}
 
       {selected ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 px-4 backdrop-blur-sm">
-          <div className="soc-panel-strong max-h-[86vh] w-full max-w-4xl overflow-y-auto p-6">
+        <AppModal isOpen={Boolean(selected)} onClose={() => setSelectedKey(null)} size="xl" panelClassName="soc-panel-strong p-6">
+          <div>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-2xl font-black text-white">{selected.assetName}</h2>
@@ -644,7 +737,7 @@ export function AssetInventoryPage() {
 
             <div className="mt-5 grid gap-4 md:grid-cols-3">
               <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4"><p className="text-xs font-bold uppercase text-slate-500">Risk Score</p><p className={`mt-2 text-2xl font-black ${riskTextClass(selected.riskScore)}`}>{selected.riskScore}</p></div>
-              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4"><p className="text-xs font-bold uppercase text-slate-500">Open Alerts</p><p className="mt-2 text-2xl font-black text-orange-200">{selected.openAlerts}</p></div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4"><p className="text-xs font-bold uppercase text-slate-500">Open Alerts</p><p className="mt-2 text-2xl font-black text-amber-200">{selected.openAlerts}</p></div>
               <div className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4"><p className="text-xs font-bold uppercase text-slate-500">Related Incidents</p><p className="mt-2 text-2xl font-black text-cyan-200">{selected.relatedIncidents}</p></div>
             </div>
 
@@ -705,7 +798,88 @@ export function AssetInventoryPage() {
               </div>
             </div>
           </div>
+        </AppModal>
+      ) : null}
+
+      {actionMessage ? (
+        <div className="rounded-xl border border-emerald-300/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-200">
+          {actionMessage}
         </div>
+      ) : null}
+
+      {assetActionPanel ? (
+        <AppModal isOpen={Boolean(assetActionPanel)} onClose={() => setAssetActionPanel(null)} size="lg" panelClassName="soc-panel-strong p-6">
+          <div className="space-y-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-black text-white">
+                  {assetActionPanel.mode === "scan" ? "Scan Preview" : "Vulnerability Context"}
+                </h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  {assetActionPanel.mode === "scan"
+                    ? "Live scan endpoint is not configured yet. This preview uses current LogShield telemetry only."
+                    : "Vulnerability records are derived from available alerts, incidents, and recent events."}
+                </p>
+              </div>
+              <button type="button" onClick={() => setAssetActionPanel(null)} className="soc-button-ghost h-10 w-10 px-0">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {assetActionPanel.assets.map(asset => (
+                <div key={asset.key} className="rounded-2xl border border-slate-800 bg-slate-950/70 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-white">{asset.assetName}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {asset.assetType} - IP {asset.ipAddress || "N/A"} - Last seen {asset.lastSeen ? new Date(asset.lastSeen).toLocaleString() : "Unknown"}
+                      </p>
+                    </div>
+                    <Chip tone={asset.riskScore > 70 ? "critical" : asset.riskScore > 40 ? "warning" : "safe"}>
+                      Risk {asset.riskScore}
+                    </Chip>
+                  </div>
+
+                  {assetActionPanel.mode === "scan" ? (
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-300">
+                        Open alerts: <b className="text-white">{asset.openAlerts}</b>
+                      </div>
+                      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-300">
+                        Related incidents: <b className="text-white">{asset.relatedIncidents}</b>
+                      </div>
+                      <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 text-sm text-slate-300">
+                        Data sources: <b className="text-white">{asset.sources.size}</b>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-3 text-sm text-slate-300">
+                      {asset.vulnerabilities > 0 ? (
+                        <p>{asset.vulnerabilities} vulnerability signal(s) are associated with this asset in the current dataset.</p>
+                      ) : (
+                        <p>No vulnerability records are available for this asset.</p>
+                      )}
+                      <p>Related alerts: {asset.relatedAlertIds.size}</p>
+                      <p>Related incidents: {asset.relatedIncidentIds.size}</p>
+                    </div>
+                  )}
+
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Recent context</p>
+                    {asset.recentEvents.length === 0 ? (
+                      <p className="mt-2 text-sm text-slate-500">No recent event context.</p>
+                    ) : (
+                      <ul className="mt-2 space-y-1 text-sm text-slate-300">
+                        {asset.recentEvents.slice(0, 4).map(event => <li key={event}>{event}</li>)}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </AppModal>
       ) : null}
     </div>
   );

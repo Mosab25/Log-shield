@@ -4,9 +4,10 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import Integer, func, select
+from sqlalchemy import Integer, func, inspect, select
 from sqlalchemy.orm import Session
 
+from app.db.base import Base
 from app.models.quiz import Quiz, QuizAttempt, QuizAnswer, QuizQuestion
 from app.models.user import User
 from app.schemas.quiz import (
@@ -24,6 +25,35 @@ from app.schemas.quiz import (
 
 
 class QuizService:
+    _schema_checked: bool = False
+
+    @classmethod
+    def ensure_schema(cls, db: Session) -> None:
+        if cls._schema_checked:
+            return
+
+        bind = db.get_bind()
+        if bind is None:
+            return
+
+        inspector = inspect(bind)
+        existing_tables = set(inspector.get_table_names())
+        required_tables = {
+            Quiz.__tablename__,
+            QuizQuestion.__tablename__,
+            QuizAttempt.__tablename__,
+            QuizAnswer.__tablename__,
+        }
+
+        if not required_tables.issubset(existing_tables):
+            Base.metadata.create_all(
+                bind=bind,
+                tables=[Quiz.__table__, QuizQuestion.__table__, QuizAttempt.__table__, QuizAnswer.__table__],
+                checkfirst=True,
+            )
+
+        cls._schema_checked = True
+
     @staticmethod
     def _normalize_options(options: Any) -> list[str]:
         if isinstance(options, dict):

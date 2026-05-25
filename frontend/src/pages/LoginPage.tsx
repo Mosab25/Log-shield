@@ -54,6 +54,7 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [lockoutSeconds, setLockoutSeconds] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname || "/home";
 
@@ -75,6 +76,13 @@ export function LoginPage() {
     if ((!twoFactorChallenge && lockoutSeconds > 0) || isSubmitting) return;
     setError(null);
     setIsSubmitting(true);
+    setLoadingMsg(twoFactorChallenge ? "Verifying code..." : "Connecting...");
+    const slowTimer = setTimeout(() => {
+      setLoadingMsg("Waking up server...");
+    }, 2000);
+    const verySlowTimer = setTimeout(() => {
+      setLoadingMsg("Almost ready...");
+    }, 5000);
 
     try {
       if (twoFactorChallenge) {
@@ -114,7 +122,10 @@ export function LoginPage() {
         setError(msg);
       }
     } finally {
+      clearTimeout(slowTimer);
+      clearTimeout(verySlowTimer);
       setIsSubmitting(false);
+      setLoadingMsg("");
     }
   }
 
@@ -141,7 +152,7 @@ export function LoginPage() {
       <div className="pointer-events-none absolute inset-0 opacity-[0.18] [background-image:linear-gradient(rgba(34,211,238,.18)_1px,transparent_1px),linear-gradient(90deg,rgba(34,211,238,.18)_1px,transparent_1px)] [background-size:56px_56px]" />
       <div className="pointer-events-none absolute left-1/2 top-0 h-px w-[84rem] -translate-x-1/2 bg-gradient-to-r from-transparent via-cyan-400/40 to-transparent" />
       <div className="pointer-events-none absolute -right-48 top-20 h-[34rem] w-[34rem] rounded-full border border-cyan-400/10" />
-      <div className="pointer-events-none absolute -right-32 top-36 h-[22rem] w-[22rem] rounded-full border border-violet-400/10" />
+      <div className="pointer-events-none absolute -right-32 top-36 h-[22rem] w-[22rem] rounded-full border border-cyan-400/10" />
 
       <section className="relative z-10 mx-auto grid min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center gap-10 lg:grid-cols-[1fr_28rem]">
         <div className="hidden max-w-2xl lg:block">
@@ -179,7 +190,7 @@ export function LoginPage() {
                 <LogShieldEmblem />
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.26em] text-cyan-300">LogShield</p>
-                  <h2 className="mt-1 text-2xl font-black text-cyber-text">SOC Tier 1 Console</h2>
+                  <h2 className="mt-1 text-2xl font-black text-cyber-text">LogShield Console</h2>
                 </div>
               </div>
 
@@ -280,7 +291,12 @@ export function LoginPage() {
                       : "bg-gradient-to-r from-cyan-200 via-cyber-cyan to-sky-300 hover:-translate-y-0.5 hover:shadow-[0_24px_60px_rgba(34,211,238,0.28)]"
                   }`}
                 >
-                  {submitLabel}
+                  {isSubmitting ? (
+                    <span className="flex items-center gap-2">
+                      <span className="spin-icon" />
+                      {loadingMsg || submitLabel}
+                    </span>
+                  ) : submitLabel}
                   {!isSubmitting && (lockoutSeconds <= 0 || twoFactorChallenge) ? <ArrowRight className="h-4 w-4 transition group-hover:translate-x-1" /> : null}
                 </button>
                 {twoFactorChallenge ? (

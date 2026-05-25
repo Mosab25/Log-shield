@@ -1,6 +1,8 @@
 import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { AlertTriangle, SearchX } from "lucide-react";
+import { toUserErrorMessage } from "../api/client";
+import { ModulePageHeader } from "./ModuleTheme";
 
 export function PageHeader({
   eyebrow,
@@ -15,18 +17,9 @@ export function PageHeader({
   icon?: LucideIcon;
   actions?: ReactNode;
 }) {
+  void Icon;
   return (
-    <section className="soc-page-header">
-      <div className="min-w-0">
-        <div className="soc-eyebrow">
-          {Icon ? <Icon className="h-4 w-4" /> : null}
-          {eyebrow}
-        </div>
-        <h1 className="mt-3 truncate text-3xl font-black tracking-tight text-cyber-text sm:text-4xl">{title}</h1>
-        {description ? <p className="mt-3 max-w-3xl text-sm leading-6 text-cyber-muted">{description}</p> : null}
-      </div>
-      {actions ? <div className="flex shrink-0 flex-wrap items-center gap-3">{actions}</div> : null}
-    </section>
+    <ModulePageHeader eyebrow={eyebrow} title={title} description={description} actions={actions} />
   );
 }
 
@@ -45,7 +38,7 @@ export function SectionHeader({
     <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
       <div>
         <div className="flex items-center gap-2">
-          {Icon ? <Icon className="h-5 w-5 text-cyan-300" /> : null}
+          {Icon ? <Icon className="h-5 w-5 text-[color:var(--module-accent)]" /> : null}
           <h2 className="text-lg font-bold text-cyber-text">{title}</h2>
         </div>
         {description ? <p className="mt-1 text-sm text-cyber-muted">{description}</p> : null}
@@ -68,7 +61,7 @@ export function EmptyState({
 }) {
   return (
     <div className="soc-empty">
-      <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-cyan-400/15 bg-cyber-surface text-cyan-300">
+      <div className="module-empty-icon mx-auto flex h-14 w-14 items-center justify-center rounded-2xl">
         <Icon className="h-7 w-7" />
       </div>
       <h3 className="mt-4 text-base font-semibold text-cyber-text">{title}</h3>
@@ -85,12 +78,13 @@ export function ErrorState({
   message: string;
   onRetry?: () => void;
 }) {
+  const friendlyMessage = toUserErrorMessage(new Error(message), message);
   return (
     <div className="rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-200 shadow-[0_0_35px_rgba(245,158,11,0.06)]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-start gap-2">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{message}</span>
+          <span>{friendlyMessage}</span>
         </div>
         {onRetry ? (
           <button type="button" onClick={onRetry} className="soc-button-ghost px-3 py-1.5 text-xs">

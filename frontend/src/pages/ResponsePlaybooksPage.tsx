@@ -1,10 +1,15 @@
 import { useMemo, useState } from "react";
 import { Copy, FileText, Search, ShieldCheck } from "lucide-react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 
+import { useAuthGate } from "../auth/useAuthGate";
+import { Chip } from "../components/ui/Chip";
+import { FilterRow } from "../components/ui/FilterRow";
+import { PageHeader } from "../components/ui/PageHeader";
+import { RowActions } from "../components/ui/RowActions";
+import { StatCard } from "../components/ui/StatCard";
 import { InfoHint, InvestigationChecklist, RecommendedActions } from "../components/Guidance";
-import { EmptyState, PageHeader } from "../components/UI";
-import { SeverityBadge } from "../components/SeverityBadge";
+import { EmptyState } from "../components/UI";
 
 type PlaybookSeverity = "low" | "medium" | "high" | "critical";
 
@@ -467,6 +472,8 @@ function filterPlaybooks(playbooks: Playbook[], query: string, severity: string)
 }
 
 export function ResponsePlaybooksPage() {
+  const navigate = useNavigate();
+  const { requireAuth, loginRequiredModal } = useAuthGate();
   const [query, setQuery] = useState("");
   const [severity, setSeverity] = useState("");
   const [selectedId, setSelectedId] = useState<string>(PLAYBOOKS[0].id);
@@ -475,12 +482,18 @@ export function ResponsePlaybooksPage() {
   const filtered = useMemo(() => filterPlaybooks(PLAYBOOKS, query, severity), [query, severity]);
   const selected = filtered.find(playbook => playbook.id === selectedId) ?? filtered[0] ?? null;
 
-  function copyChecklist(playbook: Playbook) {
-    const content = [
+  function buildPlaybookExport(playbook: Playbook) {
+    return [
       `LogShield Response Playbook: ${playbook.title}`,
       `Category: ${playbook.category}`,
       `Severity: ${playbook.severity}`,
       `Estimated Time: ${playbook.estimatedTime}`,
+      "",
+      "Overview:",
+      playbook.overview,
+      "",
+      "When To Use:",
+      ...playbook.whenToUse.map((item, index) => `${index + 1}. ${item}`),
       "",
       "Investigation Steps:",
       ...playbook.investigationSteps.map((step, index) => `${index + 1}. ${step}`),
@@ -497,11 +510,35 @@ export function ResponsePlaybooksPage() {
       "Recovery Monitoring:",
       ...playbook.recoveryMonitoring.map((item, index) => `${index + 1}. ${item}`),
       "",
+      "MITRE Mapping:",
+      ...(playbook.mitre.length ? playbook.mitre.map((item, index) => `${index + 1}. ${item}`) : ["None listed."]),
+      "",
       "Recommended Report Notes:",
       ...playbook.reportNotes.map((item, index) => `${index + 1}. ${item}`),
     ].join("\n");
-    void navigator.clipboard.writeText(content).then(() => {
-      setCopyMessage("Checklist copied.");
+  }
+
+  function copyChecklist(playbook: Playbook) {
+    requireAuth(() => {
+      const content = buildPlaybookExport(playbook);
+      void navigator.clipboard.writeText(content).then(() => {
+        setCopyMessage("Checklist copied.");
+        window.setTimeout(() => setCopyMessage(null), 2200);
+      });
+    });
+  }
+
+  function exportPlaybook(playbook: Playbook) {
+    requireAuth(() => {
+      const content = buildPlaybookExport(playbook);
+      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${playbook.id}.txt`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setCopyMessage("Playbook exported.");
       window.setTimeout(() => setCopyMessage(null), 2200);
     });
   }
@@ -509,10 +546,9 @@ export function ResponsePlaybooksPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Investigation"
+        eyebrow="RESPONSE PROCEDURES"
         title="Response Playbooks"
-        description="Use structured investigation and response checklists for common security scenarios."
-        icon={ShieldCheck}
+        description="Guided defensive workflows for common cybersecurity incidents."
       />
 
       <InfoHint title="What is this page?">
@@ -529,7 +565,13 @@ export function ResponsePlaybooksPage() {
         ]}
       />
 
-      <section className="soc-panel p-5">
+      <div className="grid gap-4 md:grid-cols-3">
+        <StatCard label="Total Playbooks" value={PLAYBOOKS.length} />
+        <StatCard label="Critical / High" value={PLAYBOOKS.filter(p => p.severity === "critical" || p.severity === "high").length} />
+        <StatCard label="Medium / Low" value={PLAYBOOKS.filter(p => p.severity === "medium" || p.severity === "low").length} />
+      </div>
+
+      <FilterRow>
         <div className="grid gap-3 md:grid-cols-[1fr_12rem]">
           <div className="relative">
             <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-500" />
@@ -548,7 +590,7 @@ export function ResponsePlaybooksPage() {
             <option value="critical">Critical</option>
           </select>
         </div>
-      </section>
+      </FilterRow>
 
       {filtered.length === 0 ? (
         <div className="soc-panel p-5">
@@ -584,20 +626,19 @@ export function ResponsePlaybooksPage() {
                   <h2 className="text-2xl font-black text-white">{selected.title}</h2>
                   <p className="mt-2 text-sm text-slate-400">{selected.overview}</p>
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <SeverityBadge severity={selected.severity} />
-                    <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs font-bold text-slate-300">{selected.category}</span>
-                    <span className="rounded-full border border-cyan-300/25 bg-cyan-300/10 px-3 py-1 text-xs font-bold text-cyan-200">{selected.estimatedTime}</span>
+                    <Chip tone={selected.severity === "critical" || selected.severity === "high" ? "critical" : selected.severity === "medium" ? "warning" : "info"}>{selected.severity}</Chip>
+                    <Chip tone="neutral">{selected.category}</Chip>
+                    <Chip tone="safe">Active</Chip>
+                    <Chip tone="info">{selected.estimatedTime}</Chip>
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button type="button" onClick={() => copyChecklist(selected)} className="soc-button-ghost">
-                    <Copy className="h-4 w-4" />
-                    Copy Checklist
-                  </button>
-                  <Link to="/incidents" className="soc-button-primary">
-                    Create Incident
-                  </Link>
-                </div>
+                <RowActions
+                  items={[
+                    { key: "open", label: "Open", variant: "primary", onClick: () => requireAuth(() => navigate("/incidents")) },
+                    { key: "copy", label: "Copy Steps", onClick: () => copyChecklist(selected) },
+                    { key: "export", label: "Export", onClick: () => exportPlaybook(selected) },
+                  ]}
+                />
               </div>
 
               {copyMessage ? (
@@ -612,9 +653,7 @@ export function ResponsePlaybooksPage() {
                   <h3 className="text-sm font-bold text-white">MITRE Mapping</h3>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {selected.mitre.map(item => (
-                      <span key={item} className="rounded-full border border-fuchsia-300/25 bg-fuchsia-400/10 px-3 py-1 text-xs font-bold text-fuchsia-200">
-                        {item}
-                      </span>
+                      <Chip key={item} tone="violet">{item}</Chip>
                     ))}
                   </div>
                 </div>
@@ -638,7 +677,7 @@ export function ResponsePlaybooksPage() {
           ) : null}
         </section>
       )}
+      {loginRequiredModal}
     </div>
   );
 }
-

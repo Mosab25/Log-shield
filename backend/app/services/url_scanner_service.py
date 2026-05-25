@@ -6,7 +6,7 @@ import json
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from sqlalchemy.orm import Session
 
@@ -240,6 +240,146 @@ class URLScannerService:
             return parsed.astimezone(timezone.utc)
 
         return None
+
+    @staticmethod
+    def _build_local_fallback_result(normalized_url: str, provider_error: str | None = None) -> dict[str, Any]:
+        """Analyze static URL indicators without visiting or executing the URL."""
+        parsed = urlparse(normalized_url)
+        hostname = (parsed.hostname or "").lower()
+        path = parsed.path or "/"
+        decoded_url = unquote(normalized_url)
+        lowered = decoded_url.lower()
+        reasons: list[str] = []
+        categories: list[str] = ["local static analysis"]
+        score = 10
+
+        if parsed.scheme == "http":
+            score += 10
+            reasons.append("URL uses unencrypted HTTP.")
+
+        if hostname.startswith("xn--") or ".xn--" in hostname:
+            score += 25
+            reasons.append("Hostname contains punycode, which can be used for lookalike domains.")
+
+        try:
+            ipaddress.ip_address(hostname)
+            score += 20
+            reasons.append("URL uses an IP address as the host.")
+        except ValueError:
+            pass
+
+        if any(hostname.endswith(tld) for tld in URLValidator.SUSPICIOUS_TLDS):
+            score += 20
+            reasons.append("Hostname uses a high-risk or frequently abused TLD.")
+
+        labels = [part for part in hostname.split(".") if part]
+        if len(labels) > 4:
+            score += 12
+            reasons.append("Hostname has excessive subdomain depth.")
+
+        suspicious_keywords = {
+            "login",
+            "verify",
+            "update",
+            "secure",
+            "account",
+            "reset",
+            "password",
+        }
+        keyword_hits = sorted(keyword for keyword in suspicious_keywords if keyword in lowered)
+        if keyword_hits:
+            score += min(30, len(keyword_hits) * 6)
+            reasons.append(f"URL contains credential-related keyword(s): {', '.join(keyword_hits)}.")
+
+        if "%" in normalized_url or decoded_url != normalized_url:
+            score += 10
+            reasons.append("URL contains encoded characters.")
+
+        if len(normalized_url) > 180:
+            score += 15
+            reasons.append("URL is unusually long.")
+
+        suspicious_extensions = (".exe", ".scr", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".jar", ".zip", ".rar", ".iso")
+        if path.lower().endswith(suspicious_extensions):
+            score += 25
+            reasons.append("URL path ends with a file type often used for payload delivery.")
+
+        has_suspicious_indicators = bool(reasons)
+
+        if not has_suspicious_indicators:
+            reasons.append("No obvious suspicious static URL indicators were found.")
+
+        score = max(0, min(100, score))
+        if has_suspicious_indicators and score >= 75:
+            status = "suspicious"
+            severity = "high"
+        elif has_suspicious_indicators and score >= 35:
+            status = "suspicious"
+            severity = "medium"
+        elif has_suspicious_indicators:
+            status = "unknown"
+            severity = "low"
+        else:
+            status = "unknown"
+            severity = "informational"
+
+        if status == "suspicious":
+            summary_text = "Suspicious static URL indicators were found."
+            recommendation = "Review the static indicators before opening or sharing this URL."
+            recommended_actions = [
+                "Do not open the URL directly until the indicators are reviewed.",
+                "Defang the URL before sharing it.",
+                "Correlate the hostname with logs, alerts, and IOC records.",
+                "Use external reputation checks if needed.",
+            ]
+        else:
+            summary_text = "No obvious suspicious static indicators were found, but this does not prove the URL is safe."
+            recommendation = "Use normal caution. Do not submit credentials unless you trust the site and verify the domain."
+            recommended_actions = [
+                "Verify the domain carefully.",
+                "Do not enter passwords or payment details unless you trust the site.",
+                "Use external reputation checks if needed.",
+            ]
+
+        confidence_note = (
+            "External reputation provider is unavailable. "
+            "This result is based only on static URL indicators."
+        )
+
+        return {
+            "url": normalized_url,
+            "normalized_url": normalized_url,
+            "status": status,
+            "severity": severity,
+            "score": score,
+            "provider": "local_fallback",
+            "mode": "local_fallback",
+            "summary": {
+                "malicious": 0,
+                "suspicious": 1 if status == "suspicious" else 0,
+                "harmless": 0,
+                "undetected": 1 if status == "unknown" else 0,
+            },
+            "categories": categories,
+            "last_analysis_date": None,
+            "recommendation": recommendation,
+            "summary_text": summary_text,
+            "confidence_note": confidence_note,
+            "raw_reference": {"provider_id": "", "permalink": ""},
+            "reasons": reasons,
+            "parsed_url": {
+                "scheme": parsed.scheme,
+                "hostname": hostname,
+                "path": path,
+            },
+            "recommended_actions": recommended_actions,
+            "safety_model": {
+                "visited_url": False,
+                "executed_content": False,
+                "note": "URL was analyzed using static indicators only.",
+            },
+            "provider_error": provider_error,
+        }
     
     async def scan_url(self, db: Session, url: str, user: User) -> URLScanResult:
         """Scan a URL for reputation."""
@@ -257,13 +397,9 @@ class URLScannerService:
         if cached_result:
             return cached_result
         
-        # Scan with provider
-        try:
-            raw_result = await self.provider.scan_url(normalized_url)
-            normalized_result = self.provider.normalize_result(raw_result)
-            
-            # Create result record
-            result = URLScanResult(
+        def create_result(normalized_result: dict[str, Any]) -> URLScanResult:
+            raw_summary = json.dumps(normalized_result)
+            return URLScanResult(
                 submitted_url=url.strip(),
                 normalized_url=normalized_url,
                 url_hash=url_hash,
@@ -276,10 +412,26 @@ class URLScannerService:
                 undetected_count=normalized_result["summary"]["undetected"],
                 categories=json.dumps(normalized_result.get("categories", [])),
                 provider_reference=normalized_result["raw_reference"]["provider_id"],
-                raw_summary=json.dumps(normalized_result),
+                raw_summary=raw_summary[:2000],
                 last_analysis_date=self._coerce_provider_datetime(normalized_result.get("last_analysis_date")),
                 submitted_by_user_id=user.id,
             )
+
+        if not getattr(self.provider, "api_key", ""):
+            normalized_result = self._build_local_fallback_result(normalized_url, "External provider API key is not configured.")
+            result = create_result(normalized_result)
+            db.add(result)
+            db.commit()
+            db.refresh(result)
+            return result
+
+        # Scan with provider
+        try:
+            raw_result = await self.provider.scan_url(normalized_url)
+            normalized_result = self.provider.normalize_result(raw_result)
+            
+            # Create result record
+            result = create_result(normalized_result)
             
             db.add(result)
             db.commit()
@@ -291,24 +443,8 @@ class URLScannerService:
             return result
             
         except Exception as e:
-            # Create failed result
-            result = URLScanResult(
-                submitted_url=url.strip(),
-                normalized_url=normalized_url,
-                url_hash=url_hash,
-                status="unknown",
-                score=50,
-                provider=self.provider.get_provider_name(),
-                malicious_count=0,
-                suspicious_count=0,
-                harmless_count=0,
-                undetected_count=0,
-                categories=None,
-                provider_reference=None,
-                raw_summary=json.dumps({"error": str(e)}),
-                last_analysis_date=None,
-                submitted_by_user_id=user.id,
-            )
+            normalized_result = self._build_local_fallback_result(normalized_url, str(e))
+            result = create_result(normalized_result)
             
             db.add(result)
             db.commit()
@@ -352,7 +488,7 @@ class URLScannerService:
             "score": result.score,
             "provider": result.provider,
         }
-        await short_cache.set(cache_key, cache_data, ttl=86400)  # 24 hours
+        short_cache.set(cache_key, cache_data, ttl=86400)  # 24 hours
     
     def get_scan_history(self, db: Session, user: User | None = None, limit: int = 50) -> list[URLScanResult]:
         """Get scan history."""

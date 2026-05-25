@@ -1,11 +1,22 @@
-export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (() => {
-  if (typeof window === "undefined") return "http://localhost:8000/api";
-  const { hostname, origin } = window.location;
+const LOCAL_API_ORIGIN = "http://127.0.0.1:8000";
+const PRODUCTION_API_ORIGIN = "https://log-shield-hjpg.onrender.com";
+const NETWORK_UNAVAILABLE_MESSAGE = "Service unavailable. Please check backend connection.";
+
+function normalizeApiBaseUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
+}
+
+function defaultApiOrigin(): string {
+  if (typeof window === "undefined") return LOCAL_API_ORIGIN;
+  const { hostname } = window.location;
   if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
-    return "http://localhost:8000/api";
+    return LOCAL_API_ORIGIN;
   }
-  return `${origin}/api`;
-})();
+  return PRODUCTION_API_ORIGIN;
+}
+
+export const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL || defaultApiOrigin());
 
 const ACCESS_TOKEN_KEY = "logshield_access_token";
 const REFRESH_TOKEN_KEY = "logshield_refresh_token";
@@ -21,23 +32,36 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
-const DEFAULT_CACHE_TTL = 30000; // 30 seconds
+const DEFAULT_CACHE_TTL = 5 * 60 * 1000;
 
 // Different TTLs for different endpoint types
 const CACHE_TTL = {
-  dashboard: 15000, // 15s - fast changing data
-  alerts: 15000, // 15s - fast changing data
-  logs: 30000, // 30s - medium changing data
-  security_center: 60000, // 1min - slower changing data
-  audit_logs: 30000, // 30s - medium changing data
-  users: 60000, // 1min - slower changing data
-  awareness_scores: 120000, // 2min - rarely changing
-  default: 30000 // 30s default
+  dashboard: 30 * 1000,
+  alerts: 5 * 60 * 1000,
+  logs: 5 * 60 * 1000,
+  incidents: 5 * 60 * 1000,
+  security_center: 10 * 60 * 1000,
+  audit_logs: 5 * 60 * 1000,
+  users: 10 * 60 * 1000,
+  awareness_scores: 10 * 60 * 1000,
+  default: DEFAULT_CACHE_TTL,
 } as const;
+
+function getCacheTtl(path: string): number {
+  if (path.includes("/dashboard")) return CACHE_TTL.dashboard;
+  if (path.includes("/alerts")) return CACHE_TTL.alerts;
+  if (path.includes("/logs")) return CACHE_TTL.logs;
+  if (path.includes("/incidents")) return CACHE_TTL.incidents;
+  if (path.includes("/security-center")) return CACHE_TTL.security_center;
+  if (path.includes("/audit")) return CACHE_TTL.audit_logs;
+  if (path.includes("/users")) return CACHE_TTL.users;
+  if (path.includes("/awareness") || path.includes("/scores")) return CACHE_TTL.awareness_scores;
+  return CACHE_TTL.default;
+}
 
 function getCacheKey(url: string, params?: Record<string, any>): string {
   const paramString = params ? JSON.stringify(params) : "";
-  return `${url}:${paramString}`;
+  return `GET:${url}:${paramString}`;
 }
 
 function getFromCache<T>(url: string, params?: Record<string, any>): T | null {
@@ -158,6 +182,21 @@ export class ApiError extends Error {
   }
 }
 
+function isNetworkFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return /failed to fetch|networkerror|load failed|fetch failed/i.test(error.message);
+}
+
+export function toUserErrorMessage(error: unknown, fallback = "Unable to complete action. Please try again."): string {
+  if (isNetworkFailure(error)) return NETWORK_UNAVAILABLE_MESSAGE;
+  if (error instanceof ApiError) {
+    if (error.status === 0) return NETWORK_UNAVAILABLE_MESSAGE;
+    if (typeof error.message === "string" && error.message.trim()) return error.message;
+  }
+  if (error instanceof Error && typeof error.message === "string" && error.message.trim()) return error.message;
+  return fallback;
+}
+
 export const tokenStorage = {
   getAccessToken(): string | null {
     const token = localStorage.getItem(ACCESS_TOKEN_KEY);
@@ -258,11 +297,16 @@ function isBlockedAccessResponse(body: unknown): body is BlockedAccessDetails {
 async function refreshAccessToken(): Promise<string | null> {
   const refreshToken = tokenStorage.getRefreshToken();
   if (!refreshToken) return null;
-  const response = await fetch(buildUrl("/auth/refresh"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify({ refresh_token: refreshToken }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(buildUrl("/auth/refresh"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+  } catch {
+    return null;
+  }
   if (!response.ok) {
     tokenStorage.clearTokens();
     return null;
@@ -308,11 +352,55 @@ export async function apiRequest<T>(
     }
   }
 
-  const response = await fetch(buildUrl(path), {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let response: Response;
+  try {
+    response = await fetch(buildUrl(path), {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (error) {
+    throw new ApiError(toUserErrorMessage(error, NETWORK_UNAVAILABLE_MESSAGE), 0, { cause: error });
+  }
+
+  if (response.status === 401 && auth && retry) {
+    const refreshedToken = await refreshAccessToken();
+    if (refreshedToken) {
+      const retryHeaders: Record<string, string> = { ...headers, Authorization: `Bearer ${refreshedToken}` };
+      let retryResponse: Response;
+      try {
+        retryResponse = await fetch(buildUrl(path), {
+          method,
+          headers: retryHeaders,
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+        });
+      } catch (error) {
+        throw new ApiError(toUserErrorMessage(error, NETWORK_UNAVAILABLE_MESSAGE), 0, { cause: error });
+      }
+
+      if (!retryResponse.ok) {
+        const retryParsed = await parseBody(retryResponse);
+        if ((retryResponse.status === 403 || retryResponse.status === 429) && isBlockedAccessResponse(retryParsed)) {
+          blockedAccessStore.set({
+            detail: retryParsed.detail || "Your IP address is blocked.",
+            code: "IP_BLOCKED",
+            ip_address: retryParsed.ip_address,
+            reason: retryParsed.reason ?? "Blocked by administrator",
+            blocked_until: retryParsed.blocked_until ?? null,
+            is_permanent: Boolean(retryParsed.is_permanent),
+          });
+        }
+        throw new ApiError(messageFrom(retryParsed), retryResponse.status, retryParsed);
+      }
+
+      if (retryResponse.status === 204) return undefined as T;
+      const retryResult = (await parseBody(retryResponse)) as T;
+      if (method === "GET" && cacheEnabled && !body) {
+        setCache(path, retryResult, getCacheTtl(path));
+      }
+      return retryResult;
+    }
+  }
 
   const duration = Date.now() - startTime;
 
@@ -344,10 +432,10 @@ export async function apiRequest<T>(
   }
 
   if (response.status === 204) return undefined as T;
-  const result = parseBody(response) as Promise<T>;
+  const result = (await parseBody(response)) as T;
 
   if (method === "GET" && cacheEnabled && !body) {
-    setCache(path, result);
+    setCache(path, result, getCacheTtl(path));
   }
 
   return result;

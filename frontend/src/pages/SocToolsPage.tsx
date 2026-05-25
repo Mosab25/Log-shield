@@ -1,4 +1,5 @@
-import { useState, useCallback } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 
 /*
  * XSS SAFETY NOTE
@@ -39,12 +40,56 @@ import {
   ListTree,
   FileSearch,
   FileWarning,
+  Search,
+  Upload,
 } from "lucide-react";
+import { Globe } from "lucide-react";
+import { analyzeLogs, type AiAnalysisResult } from "../api/aiAnalysis";
+import { analyzeEmailHeaders, type EmailHeaderAnalysisResponse } from "../api/emailAnalysis";
+import { scanWebsite, type WebsiteAnalyzerResponse, type WebsiteAnalyzerFinding } from "../api/websiteAnalyzer";
+import { checkEmailBreaches, type EmailBreachCheckResponse, type EmailBreachResult } from "../api/emailBreach";
+import {
+  checkDomainSpoofing,
+  type DomainSpoofingFinding,
+  type DomainSpoofingResponse,
+  type DomainSpoofingVariant,
+} from "../api/domainSpoofing";
+import { toUserErrorMessage } from "../api/client";
+import { AiInsightCard } from "../components/ai/AiInsightCard";
 import { InfoHint, VerdictBadge } from "../components/Guidance";
-import { PageHeader } from "../components/UI";
+import { AppModal } from "../components/ui/AppModal";
+import { Chip } from "../components/ui/Chip";
+import { PageHeader } from "../components/ui/PageHeader";
+import { StatCard } from "../components/ui/StatCard";
+import { ToolDemoModal } from "../components/soc-tools/ToolDemoModal";
+import { useAuthGate } from "../auth/useAuthGate";
+import { useMediaQuery } from "../hooks/useMediaQuery";
 import { deriveAttackSignalFromText } from "../securitySignals";
+import { socToolDemos } from "../data/socToolDemos";
+import {
+  compareLatestTwoByHostname,
+  exportScanComparisonJson,
+  exportScanComparisonTxt,
+  exportScanJson,
+  exportScanTxt,
+  getWebsiteScanHistory,
+  saveWebsiteScanToHistory,
+  type StoredWebsiteScan,
+} from "../features/mySecurity/scanHistory";
+import { useAuth } from "../auth/AuthContext";
 
 const MAX_INPUT_BYTES = 50 * 1024;
+
+type RequireToolAuth = (action: () => void | Promise<void>) => boolean;
+
+const ToolAuthGateContext = createContext<RequireToolAuth>((action) => {
+  void action();
+  return true;
+});
+
+function useToolAuthGate() {
+  return useContext(ToolAuthGateContext);
+}
 
 function inputSizeOk(text: string): boolean {
   return new TextEncoder().encode(text).length <= MAX_INPUT_BYTES;
@@ -62,7 +107,7 @@ function CopyBtn({ text }: { text: string }) {
   }, [text]);
   if (!text) return null;
   return (
-    <button onClick={copy} className="ml-2 shrink-0 rounded-lg border border-cyan-400/15 bg-cyber-elevated px-2 py-1 text-xs text-cyber-muted transition hover:border-cyber-cyan/40 hover:text-cyber-cyan">
+    <button type="button" onClick={copy} className="ml-2 shrink-0 rounded-lg border border-cyan-400/15 bg-cyber-elevated px-2 py-1 text-xs text-cyber-muted transition hover:border-cyber-cyan/40 hover:text-cyber-cyan">
       {ok ? <Check className="inline h-3 w-3 mr-1" /> : <Copy className="inline h-3 w-3 mr-1" />}{ok ? "Copied" : "Copy"}
     </button>
   );
@@ -119,10 +164,11 @@ function ClearBtn({ onClick }: { onClick: () => void }) {
 }
 
 function ActionBtn({ label, onClick, disabled, variant = "primary" }: { label: string; onClick: () => void; disabled?: boolean; variant?: "primary" | "secondary" }) {
+  const requireAuth = useToolAuthGate();
   const cls = variant === "primary"
     ? "rounded-xl bg-cyan-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-cyan-300 disabled:opacity-50 disabled:cursor-not-allowed"
     : "rounded-xl border border-cyan-400/15 bg-cyber-elevated px-4 py-2 text-sm font-semibold text-cyber-text transition hover:border-cyber-cyan/40 hover:text-cyber-cyan disabled:opacity-50 disabled:cursor-not-allowed";
-  return <button onClick={onClick} disabled={disabled} className={cls}>{label}</button>;
+  return <button onClick={() => requireAuth(onClick)} disabled={disabled} className={cls}>{label}</button>;
 }
 
 type ToolVerdict = "safe" | "suspicious" | "malicious" | "unknown";
@@ -141,7 +187,7 @@ interface ToolAssessment {
 
 function severityTone(severity: ToolSeverity): string {
   if (severity === "critical") return "border-red-500/30 bg-red-500/10 text-red-300";
-  if (severity === "high") return "border-orange-400/30 bg-orange-500/10 text-orange-200";
+  if (severity === "high") return "border-red-400/30 bg-red-500/10 text-red-200";
   if (severity === "medium") return "border-amber-400/25 bg-amber-500/10 text-amber-200";
   return "border-emerald-400/25 bg-emerald-500/10 text-emerald-300";
 }
@@ -868,73 +914,79 @@ function EmailHeaderTool() {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
   const [assessment, setAssessment] = useState<ToolAssessment | null>(null);
+  const [validationError, setValidationError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function analyze() {
+  function isLikelyEmailHeaderBlock(value: string): boolean {
+    const lines = value.replace(/\r\n/g, "\n").split("\n").map(line => line.trim()).filter(Boolean);
+    if (lines.length < 3) return false;
+    const headerLikeLines = lines.filter(line => /^[A-Za-z0-9-]+:\s*.+$/.test(line));
+    return headerLikeLines.length >= 3;
+  }
+
+  async function analyze() {
     setAssessment(null);
+    setValidationError("");
     if (!inputSizeOk(input)) return;
-    const headers = parseHeaders(input);
-    const received = headers.received || [];
-    const auth = getHeader(headers, "authentication-results").toLowerCase();
-    const suspicious: string[] = [];
-    if (!auth.includes("spf=pass")) suspicious.push("SPF did not clearly pass.");
-    if (!auth.includes("dkim=pass")) suspicious.push("DKIM did not clearly pass.");
-    if (!auth.includes("dmarc=pass")) suspicious.push("DMARC did not clearly pass.");
-    if (!getHeader(headers, "return-path")) suspicious.push("Return-Path is missing.");
-    if (received.length > 5) suspicious.push("Long Received chain. Review hops for forwarding or relay abuse.");
+    if (!isLikelyEmailHeaderBlock(input)) {
+      setOutput("");
+      setValidationError("Input does not look like raw email headers. Paste header lines in 'Key: Value' format.");
+      return;
+    }
+    try {
+      setLoading(true);
+      const result: EmailHeaderAnalysisResponse = await analyzeEmailHeaders(input);
+      setOutput(
+        JSON.stringify(
+          {
+            summary: result.summary,
+            authentication: result.authentication,
+            suspicious_signals: result.suspicious_signals,
+            next_steps: result.next_steps,
+            safety_model: result.safety_model,
+          },
+          null,
+          2,
+        ),
+      );
 
-    setOutput(JSON.stringify({
-      summary: {
-        from: getHeader(headers, "from") || "not found",
-        reply_to: getHeader(headers, "reply-to") || "not found",
-        return_path: getHeader(headers, "return-path") || "not found",
-        subject: getHeader(headers, "subject") || "not found",
-        date: getHeader(headers, "date") || "not found",
-        message_id: getHeader(headers, "message-id") || "not found",
-        received_hops: received.length,
-      },
-      authentication: {
-        spf: auth.includes("spf=pass") ? "pass" : auth.includes("spf=") ? "review" : "not found",
-        dkim: auth.includes("dkim=pass") ? "pass" : auth.includes("dkim=") ? "review" : "not found",
-        dmarc: auth.includes("dmarc=pass") ? "pass" : auth.includes("dmarc=") ? "review" : "not found",
-      },
-      suspicious_signals: suspicious.length ? suspicious : ["No obvious header anomaly found. Continue with URL/attachment checks."],
-      next_steps: [
-        "Compare From, Reply-To, and Return-Path domains.",
-        "Extract URLs and domains with IOC Extractor.",
-        "Check sending IPs in logs or threat intelligence.",
-        "Preserve the full header as incident evidence if suspicious.",
-      ],
-    }, null, 2));
-    const riskScore = suspicious.length >= 4 ? 82 : suspicious.length >= 2 ? 58 : suspicious.length === 1 ? 32 : 10;
-    const severity: ToolSeverity = suspicious.length >= 4 ? "high" : suspicious.length >= 2 ? "medium" : "low";
-    setAssessment({
-      title: "Email header trust assessment",
-      verdict: suspicious.length >= 4 ? "malicious" : suspicious.length > 0 ? "suspicious" : "safe",
-      severity,
-      riskScore,
-      summary: suspicious.length
-        ? "The header contains trust or routing anomalies that deserve phishing-style triage."
-        : "Authentication and routing signals look reasonable from a quick local review.",
-      reasons: suspicious.length ? suspicious : ["SPF, DKIM, and DMARC do not show obvious immediate problems in the pasted header set."],
-      recommendedActions: [
-        "Compare visible sender identity with Return-Path and Reply-To.",
-        "Extract URLs, domains, and sender IPs before opening anything.",
-      ],
-      entities: {
-        from: getHeader(headers, "from") || null,
-        reply_to: getHeader(headers, "reply-to") || null,
-        return_path: getHeader(headers, "return-path") || null,
-      },
-    });
+      setAssessment({
+        title: "Email header trust assessment",
+        verdict: result.verdict,
+        severity: result.severity,
+        riskScore: result.risk_score,
+        summary:
+          result.verdict === "safe"
+            ? "Authentication and routing signals look reasonable from this API-backed review."
+            : "The header contains trust or routing anomalies that deserve phishing-style triage.",
+        reasons:
+          result.suspicious_signals.length > 0
+            ? result.suspicious_signals
+            : ["No obvious header anomaly found. Continue with URL/attachment checks."],
+        recommendedActions: result.next_steps.slice(0, 3),
+        entities: {
+          from: result.summary.from || null,
+          reply_to: result.summary.reply_to || null,
+          return_path: result.summary.return_path || null,
+        },
+      });
+    } catch (err) {
+      setOutput("");
+      setAssessment(null);
+      setValidationError(toUserErrorMessage(err, "Email analysis service is unavailable. Please check backend connection."));
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
     <div className="space-y-4">
       <ToolInput value={input} onChange={setInput} rows={7} placeholder="Paste raw email headers..." />
       <SizeWarning input={input} />
+      {validationError ? <ToolError message={validationError} /> : null}
       <div className="flex flex-wrap gap-2">
-        <ActionBtn label="Analyze Headers" onClick={analyze} disabled={!input.trim()} />
-        <ClearBtn onClick={() => { setInput(""); setOutput(""); setAssessment(null); }} />
+        <ActionBtn label={loading ? "Analyzing..." : "Analyze Headers"} onClick={analyze} disabled={!input.trim() || loading} />
+        <ClearBtn onClick={() => { setInput(""); setOutput(""); setAssessment(null); setValidationError(""); }} />
       </div>
       <ToolAssessmentCard assessment={assessment} />
       {output && <div className="space-y-1"><div className="flex items-center justify-between"><span className="text-xs font-semibold text-slate-400">Header Analysis</span><CopyBtn text={output} /></div><ToolOutput text={output} /></div>}
@@ -1167,6 +1219,9 @@ function LogTriageTool() {
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
   const [assessment, setAssessment] = useState<ToolAssessment | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<AiAnalysisResult | null>(null);
 
   function triage() {
     if (!inputSizeOk(input)) return;
@@ -1238,15 +1293,32 @@ function LogTriageTool() {
     });
   }
 
+  async function triageWithAi() {
+    if (!input.trim() || aiBusy) return;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const result = await analyzeLogs({ raw_logs: input, context: "SOC Tools Log Triage" });
+      setAiResult(result);
+    } catch (err: any) {
+      setAiError(err?.message || "AI-assisted analysis failed.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <ToolInput value={input} onChange={setInput} rows={6} placeholder="Paste one suspicious log line or alert message for quick triage..." />
       <SizeWarning input={input} />
       <div className="flex flex-wrap gap-2">
         <ActionBtn label="Triage Log" onClick={triage} disabled={!input.trim()} />
-        <ClearBtn onClick={() => { setInput(""); setOutput(""); setAssessment(null); }} />
+        <ActionBtn label={aiBusy ? "AI Analyzing..." : "AI-Assisted Analyze"} onClick={() => void triageWithAi()} disabled={!input.trim() || aiBusy} variant="secondary" />
+        <ClearBtn onClick={() => { setInput(""); setOutput(""); setAssessment(null); setAiResult(null); setAiError(null); }} />
       </div>
+      {aiError && <ToolError message={aiError} />}
       <ToolAssessmentCard assessment={assessment} />
+      {aiResult ? <AiInsightCard result={aiResult} title="AI Log Classifier" /> : null}
       {output && <div className="space-y-1"><div className="flex items-center justify-between"><span className="text-xs font-semibold text-slate-400">Triage Result</span><CopyBtn text={output} /></div><ToolOutput text={output} /></div>}
     </div>
   );
@@ -1552,6 +1624,7 @@ function saveFileAnalyzerFinding(finding: StoredFileFinding) {
 }
 
 function FileAnalyzerTool() {
+  const requireAuth = useToolAuthGate();
   const [output, setOutput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1677,7 +1750,11 @@ function FileAnalyzerTool() {
         <span className="mt-1 block text-xs text-slate-500">Maximum size: 10MB. Suspicious files should still be handled in an isolated analysis workflow.</span>
         <input
           type="file"
-          onChange={event => void analyzeFile(event.target.files?.[0] ?? null)}
+          onChange={event => {
+            const file = event.target.files?.[0] ?? null;
+            const allowed = requireAuth(() => void analyzeFile(file));
+            if (!allowed) event.currentTarget.value = "";
+          }}
           className="mt-4 block w-full text-sm text-slate-400 file:mr-4 file:rounded-xl file:border-0 file:bg-cyan-400 file:px-4 file:py-2 file:text-sm file:font-bold file:text-slate-950 hover:file:bg-cyan-300"
           disabled={loading}
         />
@@ -1691,6 +1768,2103 @@ function FileAnalyzerTool() {
   );
 }
 
+/* ───────────── 15. Website Security Analyzer ───────────── */
+
+type ScanStage = "idle" | "validating" | "fetching" | "cookies" | "paths" | "forms" | "report" | "done" | "error";
+
+const SCAN_STAGES: { key: ScanStage; label: string }[] = [
+  { key: "validating", label: "Validating URL" },
+  { key: "fetching", label: "Fetching headers" },
+  { key: "cookies", label: "Checking cookies" },
+  { key: "paths", label: "Checking exposed paths" },
+  { key: "forms", label: "Analyzing forms" },
+  { key: "report", label: "Generating report" },
+];
+
+function sevColor(severity: string): string {
+  switch (severity) {
+    case "critical": return "border-red-500/40 bg-red-500/15 text-red-300";
+    case "high": return "border-red-400/30 bg-red-500/10 text-red-200";
+    case "medium": return "border-amber-400/30 bg-amber-500/10 text-amber-200";
+    case "low": return "border-emerald-400/25 bg-emerald-500/10 text-emerald-300";
+    default: return "border-slate-600/30 bg-slate-700/20 text-slate-400";
+  }
+}
+
+function riskLevelColor(level: string): string {
+  switch (level) {
+    case "critical": return "bg-red-500 text-white";
+    case "high": return "bg-red-400 text-white";
+    case "medium": return "bg-amber-400 text-slate-900";
+    case "low": return "bg-emerald-400 text-slate-900";
+    default: return "bg-slate-500 text-white";
+  }
+}
+
+function tlsStatusLabel(status?: string): string {
+  if (status === "supported") return "Yes";
+  if (status === "not_supported") return "No";
+  return "Inconclusive";
+}
+
+function tlsStatusTone(status?: string): string {
+  if (status === "supported") return "text-red-300";
+  if (status === "not_supported") return "text-emerald-300";
+  return "text-amber-300";
+}
+
+function confidenceTone(confidence?: string): string {
+  if (confidence === "high") return "text-emerald-300";
+  if (confidence === "medium") return "text-amber-300";
+  if (confidence === "low") return "text-slate-300";
+  return "text-slate-400";
+}
+
+function WebsiteAnalyzerTool() {
+  const { user } = useAuth();
+  const userId = user?.id ?? null;
+  const [url, setUrl] = useState("");
+  const [authorized, setAuthorized] = useState(false);
+  const [stage, setStage] = useState<ScanStage>("idle");
+  const [result, setResult] = useState<WebsiteAnalyzerResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [activeAdvancedTab, setActiveAdvancedTab] = useState("passive");
+  const [showTechDetails, setShowTechDetails] = useState(false);
+  const [activeTechTab, setActiveTechTab] = useState("headers");
+  const [historyTick, setHistoryTick] = useState(0);
+  const [selectedHistoryScan, setSelectedHistoryScan] = useState<StoredWebsiteScan | null>(null);
+  const requireAuth = useToolAuthGate();
+  const history = useMemo(() => getWebsiteScanHistory(userId), [historyTick, userId]);
+  const currentHostname = result?.target.hostname?.trim().toLowerCase() || "";
+  const historyForCurrentHost = useMemo(
+    () => (currentHostname ? history.filter((item) => item.hostname.trim().toLowerCase() === currentHostname) : []),
+    [currentHostname, history],
+  );
+  const latestHostComparison = useMemo(
+    () => (currentHostname ? compareLatestTwoByHostname(userId, currentHostname) : null),
+    [currentHostname, userId, historyTick],
+  );
+
+  const canScan = url.trim().length > 0 && authorized && stage === "idle";
+
+  async function runScan() {
+    setError(null);
+    setResult(null);
+    setShowTechDetails(false);
+
+    // Simulate progress stages for UX
+    const stages: ScanStage[] = ["validating", "fetching", "cookies", "paths", "forms", "report"];
+    for (const s of stages) {
+      setStage(s);
+      await new Promise(r => setTimeout(r, 250));
+    }
+
+    try {
+      const res = await scanWebsite(url.trim(), authorized);
+      saveWebsiteScanToHistory(res, userId);
+      setHistoryTick((value) => value + 1);
+      setResult(res);
+      setStage("done");
+    } catch (err: any) {
+      setError(err?.message || "Website analyzer service is unavailable. Please check backend connection.");
+      setStage("error");
+    }
+  }
+
+  function clear() {
+    setUrl("");
+    setAuthorized(false);
+    setStage("idle");
+    setResult(null);
+    setError(null);
+    setShowAdvanced(false);
+    setActiveAdvancedTab("passive");
+    setShowTechDetails(false);
+  }
+
+  const hostname = result?.target.hostname || "domain";
+  const formattedDate = new Date().toISOString().split("T")[0];
+
+  function exportJson() {
+    if (!result) return;
+    const payload = {
+      scan: result,
+      comparison: latestHostComparison
+        ? {
+            previous: latestHostComparison.previous,
+            latest: latestHostComparison.latest,
+            deltas: {
+              risk_score: latestHostComparison.risk_delta,
+              findings_count: latestHostComparison.findings_delta,
+              critical: latestHostComparison.critical_delta,
+              high: latestHostComparison.high_delta,
+            },
+            fixed: latestHostComparison.fixed,
+            still_open: latestHostComparison.still_open,
+            new_findings: latestHostComparison.added,
+          }
+        : null,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `logshield-website-security-report-${hostname}-${formattedDate}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function exportTxt() {
+    if (!result) return;
+
+    const crit = result.findings.filter(f => f.severity === "critical");
+    const high = result.findings.filter(f => f.severity === "high");
+    const medLow = result.findings.filter(f => f.severity === "medium" || f.severity === "low" || f.severity === "informational");
+    const robotsCheck = result.checks.robots;
+    const sitemapCheck = result.checks.sitemap;
+    const tlsCheck = result.checks.tls_versions;
+    const cspCheck = result.checks.csp_analysis;
+    const cookiePrefixCheck = result.checks.cookie_prefix_review;
+    const hiddenCheck = result.checks.hidden_defacement;
+    const correlatedCheck = result.checks.correlated_risks ?? [];
+    const providerContext = result.context;
+    const tuningSummary = result.context_tuning_summary;
+    const severitySummary = result.severity_summary;
+    const owaspSummary = result.owasp_summary ?? [];
+    const comparisonBlock = latestHostComparison
+      ? [
+          "",
+          "SCAN COMPARISON",
+          "===============",
+          `Previous risk score: ${latestHostComparison.previous.risk_score}/100 (${latestHostComparison.previous.risk_level.toUpperCase()})`,
+          `Current risk score: ${latestHostComparison.latest.risk_score}/100 (${latestHostComparison.latest.risk_level.toUpperCase()})`,
+          `Score change: ${latestHostComparison.risk_delta > 0 ? `+${latestHostComparison.risk_delta}` : latestHostComparison.risk_delta}`,
+          `Findings change: ${latestHostComparison.findings_delta > 0 ? `+${latestHostComparison.findings_delta}` : latestHostComparison.findings_delta}`,
+          "",
+          "Fixed findings (not observed in latest scan):",
+          ...(latestHostComparison.fixed.length
+            ? latestHostComparison.fixed.map((item) => `  - ${item.title} was not observed in the latest scan.`)
+            : ["  - None"]),
+          "",
+          "Still open findings:",
+          ...(latestHostComparison.still_open.length
+            ? latestHostComparison.still_open.map((item) => `  - ${item.title}`)
+            : ["  - None"]),
+          "",
+          "New findings:",
+          ...(latestHostComparison.added.length
+            ? latestHostComparison.added.map((item) => `  - ${item.title}`)
+            : ["  - None"]),
+          "",
+          "Comparison is based on findings observed by the safe Website Security Analyzer. A finding marked as fixed means it was not observed in the latest scan, not that the entire website is guaranteed secure.",
+        ]
+      : [];
+
+    const lines: string[] = [
+      "================================================================================",
+      "                  LOGSHIELD WEBSITE SECURITY ASSESSMENT REPORT                  ",
+      "================================================================================",
+      `Scan Date:       ${new Date().toLocaleString()}`,
+      `Target URL:      ${result.target.input_url}`,
+      `Final Destination: ${result.target.final_url}`,
+      `Overall Risk:    ${result.overall.risk_score}/100 (${result.overall.risk_level.toUpperCase()})`,
+      "--------------------------------------------------------------------------------",
+      "",
+      "1. EXECUTIVE SUMMARY",
+      "====================",
+      result.overall.summary,
+      "",
+      "CONTEXT-AWARE ANALYSIS",
+      `Known provider domain: ${providerContext?.known_provider_domain ? "Yes" : "No"}`,
+      `Provider family: ${providerContext?.provider_family || "N/A"}`,
+      `Adjusted findings: ${providerContext?.adjusted_findings ?? 0}`,
+      `Tuning summary: adjusted=${tuningSummary?.adjusted_findings_count ?? 0}, downgraded=${tuningSummary?.downgraded_findings_count ?? 0}, upgraded=${tuningSummary?.upgraded_findings_count ?? 0}`,
+      providerContext?.note || "No context note available.",
+      "",
+      "WHAT THIS MEANS:",
+      result.overall.risk_explanation || "",
+      "",
+      "2. TOP PRIORITIES & REMEDIATION ROADMAP",
+      "======================================",
+      ...(result.roadmap || []).map(r => 
+        `Priority ${r.priority}: [Action] ${r.action}\n  - Effort: ${r.effort.toUpperCase()}  |  Impact: ${r.impact.toUpperCase()}\n  - Associated findings: ${r.findings.join(", ") || "None"}\n`
+      ),
+      "",
+      "3. DETAILED FINDINGS",
+      "====================",
+      "",
+      "CRITICAL FINDINGS:",
+      crit.length === 0 ? "  No critical findings detected." : "",
+      ...crit.map(f => `  [P${f.priority}] ${f.title} (${f.owasp_category || "General"})\n   * What happened: ${f.evidence}\n   * Why it matters: ${f.impact}\n   * Fix roadmap: ${f.recommendation}\n`),
+      "",
+      "HIGH FINDINGS:",
+      high.length === 0 ? "  No high findings detected." : "",
+      ...high.map(f => `  [P${f.priority}] ${f.title} (${f.owasp_category || "General"})\n   * What happened: ${f.evidence}\n   * Why it matters: ${f.impact}\n   * Fix roadmap: ${f.recommendation}\n`),
+      "",
+      "MEDIUM & LOW FINDINGS:",
+      medLow.length === 0 ? "  No medium or low findings detected." : "",
+      ...medLow.map(f => `  [P${f.priority}] ${f.title} (${f.severity.toUpperCase()} - ${f.owasp_category || "General"})\n   * What happened: ${f.evidence}\n   * Why it matters: ${f.impact}\n   * Fix roadmap: ${f.recommendation}\n`),
+      "",
+      "5. ADVANCED ANALYSIS",
+      "====================",
+      "SEVERITY SUMMARY",
+      `Critical: ${severitySummary?.critical ?? 0} | High: ${severitySummary?.high ?? 0} | Medium: ${severitySummary?.medium ?? 0} | Low: ${severitySummary?.low ?? 0} | Informational: ${severitySummary?.informational ?? 0}`,
+      "",
+      "OWASP SUMMARY",
+      ...(owaspSummary.length
+        ? owaspSummary.map(
+            item =>
+              `  - ${item.category}: total=${item.count}, critical=${item.critical}, high=${item.high}, medium=${item.medium}, low=${item.low}, informational=${item.informational ?? 0}`,
+          )
+        : ["  No OWASP summary data available."]),
+      "",
+      "PASSIVE DISCOVERY",
+      `robots.txt fetched: ${robotsCheck?.fetched ? "Yes" : "No"} | sensitive disallow entries: ${robotsCheck?.sensitive_disallow_paths?.length ?? 0}`,
+      `sitemap.xml fetched: ${sitemapCheck?.fetched ? "Yes" : "No"} | urls listed: ${sitemapCheck?.url_count ?? 0} | sensitive urls: ${sitemapCheck?.sensitive_url_count ?? 0}`,
+      `sitemap HTTP urls: ${sitemapCheck?.http_url_count ?? 0}`,
+      "",
+      "TLS VERSION SECURITY",
+      `TLS 1.0 supported: ${tlsStatusLabel(tlsCheck?.tls_1_0?.status)}`,
+      `TLS 1.1 supported: ${tlsStatusLabel(tlsCheck?.tls_1_1?.status)}`,
+      `Recommendation: ${tlsCheck?.recommendation || "Use TLS 1.2+ or TLS 1.3."}`,
+      "",
+      "CSP QUALITY",
+      `CSP present: ${cspCheck?.present ? "Yes" : "No"} | risk level: ${String(cspCheck?.risk_level || "unknown").toUpperCase()}`,
+      ...(cspCheck?.issues?.map(issue => `  - [${issue.severity.toUpperCase()}] ${issue.title}: ${issue.evidence}`) ?? []),
+      "",
+      "HIDDEN DEFACEMENT & SEO SPAM",
+      `Risk level: ${String(hiddenCheck?.risk_level || "informational").toUpperCase()}`,
+      `Hidden elements checked: ${hiddenCheck?.hidden_elements_checked ?? 0}`,
+      `Suspicious hidden elements: ${hiddenCheck?.suspicious_hidden_elements?.length ?? 0}`,
+      `Spam keywords found: ${hiddenCheck?.spam_keywords_found?.join(", ") || "None"}`,
+      `Suspicious link domains: ${(hiddenCheck?.suspicious_links_found?.map(item => item.domain).join(", ")) || "None"}`,
+      `Summary note: ${hiddenCheck?.summary_note || "No hidden-content summary available."}`,
+      ...(hiddenCheck?.suspicious_hidden_elements?.slice(0, 5).map((item: any, idx: number) =>
+        `  - [${idx + 1}] tag=${item.tag || "unknown"} patterns=${(item.matched_hidden_patterns || []).join("|") || "none"} keywords=${(item.matched_keywords || []).join("|") || "none"} snippet=${item.snippet || "N/A"}`
+      ) ?? []),
+      "",
+      "CORRELATED RISK SCENARIOS",
+      ...(correlatedCheck.length === 0
+        ? ["  No correlated risk scenarios detected."]
+        : correlatedCheck.map(scenario => `  - [${scenario.severity.toUpperCase()}] ${scenario.title}\n    Evidence: ${scenario.evidence.join(" | ")}\n    Actions: ${scenario.recommended_actions.join(" | ")}\n    Related finding IDs: ${scenario.related_finding_ids.join(", ") || "None"}\n`)),
+      "",
+      "COOKIE PREFIX REVIEW",
+      ...(cookiePrefixCheck?.sensitive_cookies?.length
+        ? cookiePrefixCheck.sensitive_cookies.map(cookie => `  - ${cookie.name}: prefix=${cookie.prefix}, Secure=${cookie.secure ? "Yes" : "No"}, HttpOnly=${cookie.httponly ? "Yes" : "No"}, SameSite=${cookie.samesite}`)
+        : ["  No sensitive cookies were detected for prefix review."]),
+      ...(cookiePrefixCheck?.issues?.map(issue => `  ! ${issue.title} (${issue.cookie_name}): ${issue.recommendation}`) ?? []),
+      "",
+      "6. SAFETY AND METHODOLOGY NOTE",
+      "==============================",
+      result.safety_model.note,
+      `Checks performed: Non-invasive GET/HEAD requests only. Max paths: ${result.safety_model.max_paths_checked}.`,
+      `HTML rendered in scanner: ${result.safety_model.html_rendered ? "Yes" : "No"}`,
+      `JavaScript executed in scanner: ${result.safety_model.javascript_executed ? "Yes" : "No"}`,
+      `Links followed by scanner: ${result.safety_model.links_followed ? "Yes" : "No"}`,
+      `Raw HTML stored: ${result.safety_model.raw_html_stored ? "Yes" : "No"}`,
+      "================================================================================",
+      ...comparisonBlock,
+      "",
+    ];
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `logshield-website-security-report-${hostname}-${formattedDate}.txt`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  function copySummary() {
+    if (!result) return;
+    const text = `Risk Score: ${result.overall.risk_score}/100 (${result.overall.risk_level.toUpperCase()})\nTarget: ${result.target.input_url}\n\nSummary:\n${result.overall.summary}\n\nWhat this means:\n${result.overall.risk_explanation || ""}`;
+    navigator.clipboard.writeText(text);
+  }
+
+  const critCount = result?.severity_summary?.critical ?? result?.findings.filter(f => f.severity === "critical").length ?? 0;
+  const highCount = result?.severity_summary?.high ?? result?.findings.filter(f => f.severity === "high").length ?? 0;
+  const medCount = result?.severity_summary?.medium ?? result?.findings.filter(f => f.severity === "medium").length ?? 0;
+  const lowCount = result?.severity_summary?.low ?? result?.findings.filter(f => f.severity === "low").length ?? 0;
+  const infoCount = result?.severity_summary?.informational ?? result?.findings.filter(f => f.severity === "informational").length ?? 0;
+  const robots = result?.checks.robots;
+  const sitemap = result?.checks.sitemap;
+  const tlsVersions = result?.checks.tls_versions;
+  const cspAnalysis = result?.checks.csp_analysis;
+  const cookiePrefixReview = result?.checks.cookie_prefix_review;
+  const hiddenDefacement = result?.checks.hidden_defacement;
+  const correlatedRisks = result?.checks.correlated_risks ?? [];
+  const providerContext = result?.context;
+  const tuningSummary = result?.context_tuning_summary;
+  const adjustedFindings = result?.findings.filter(f => Boolean(f.original_severity)).length ?? 0;
+  const analystNotesCount = result?.findings.filter(f => Boolean(f.analyst_note)).length ?? 0;
+  const owaspSummary = result?.owasp_summary ?? [];
+
+  return (
+    <div className="space-y-6">
+      {/* Input section */}
+      <div className="space-y-3">
+        <input
+          id="wa-url-input"
+          type="url"
+          value={url}
+          onChange={e => setUrl(e.target.value)}
+          placeholder="https://example.com"
+          className="w-full rounded-2xl border border-cyan-400/15 bg-cyber-surface px-4 py-3 font-mono text-sm text-cyber-text placeholder:text-cyber-muted focus:border-cyber-cyan/60 focus:outline-none"
+          disabled={stage !== "idle" && stage !== "done" && stage !== "error"}
+        />
+        <label className="flex items-center gap-2 text-sm text-cyber-text cursor-pointer select-none">
+          <input
+            id="wa-auth-checkbox"
+            type="checkbox"
+            checked={authorized}
+            onChange={e => setAuthorized(e.target.checked)}
+            className="h-4 w-4 rounded border-cyan-400/30 bg-cyber-surface text-cyan-400 focus:ring-cyan-400/40"
+          />
+          I confirm that I own this website or have permission to scan it.
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <ActionBtn
+            label={stage === "idle" || stage === "done" || stage === "error" ? "Run Security Assessment" : "Scanning..."}
+            onClick={() => requireAuth(runScan)}
+            disabled={!canScan && stage !== "done" && stage !== "error"}
+          />
+          <ClearBtn onClick={clear} />
+        </div>
+      </div>
+
+      {/* Scan progress */}
+      {stage !== "idle" && stage !== "done" && stage !== "error" && (
+        <div className="rounded-2xl border border-cyan-400/15 bg-cyber-elevated/40 p-5 space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-300/80">Scan Progress</p>
+          <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
+            {SCAN_STAGES.map(s => {
+              const idx = SCAN_STAGES.findIndex(x => x.key === stage);
+              const sIdx = SCAN_STAGES.findIndex(x => x.key === s.key);
+              const isDone = sIdx < idx;
+              const isCurrent = s.key === stage;
+              return (
+                <div key={s.key} className={`flex items-center gap-2 text-sm rounded-xl p-2.5 border transition ${
+                  isDone ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-300" : isCurrent ? "border-cyan-400/30 bg-cyan-400/5 text-cyan-300 font-semibold" : "border-slate-800 bg-slate-900/10 text-slate-600"
+                }`}>
+                  {isDone ? <Check className="h-4 w-4 text-emerald-400 shrink-0" /> : isCurrent ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-400 border-t-transparent shrink-0" /> : <span className="h-4 w-4 shrink-0 border border-slate-700 rounded-full" />}
+                  {s.label}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && <ToolError message={error} />}
+
+      {/* Results Report */}
+      {result && (
+        <div className="space-y-6">
+          {/* Executive view header */}
+          <div className="rounded-2xl border border-cyan-400/15 bg-slate-950/80 p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-white">Security Assessment Report</h3>
+                <p className="text-xs text-slate-500 font-mono">Target: {result.target.final_url}</p>
+              </div>
+              <span className="rounded-md border border-slate-800 bg-slate-900/80 px-2.5 py-1 text-[11px] font-mono text-slate-400">
+                Safe non-invasive scan
+              </span>
+            </div>
+
+            {/* Risk overview stat cards */}
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="rounded-2xl border border-cyan-400/5 bg-slate-900/40 p-4 text-center">
+                <p className="text-xs font-semibold uppercase text-slate-500">Risk Score</p>
+                <p className="mt-1 text-3xl font-black text-white">{result.overall.risk_score}<span className="text-lg text-slate-500">/100</span></p>
+              </div>
+              <div className="rounded-2xl border border-cyan-400/5 bg-slate-900/40 p-4 text-center">
+                <p className="text-xs font-semibold uppercase text-slate-500">Risk Level</p>
+                <span className={`mt-2 inline-block rounded-full px-4 py-1 text-xs font-black uppercase ${riskLevelColor(result.overall.risk_level)}`}>
+                  {result.overall.risk_level}
+                </span>
+              </div>
+              <div className="rounded-2xl border border-cyan-400/5 bg-slate-900/40 p-4 text-center">
+                <p className="text-xs font-semibold uppercase text-slate-500">Total Findings</p>
+                <p className="mt-1 text-3xl font-black text-white">{result.findings.length}</p>
+              </div>
+              <div className="rounded-2xl border border-cyan-400/5 bg-slate-900/40 p-4 text-center">
+                <p className="text-xs font-semibold uppercase text-slate-500">Critical / High</p>
+                <p className="mt-1 text-3xl font-black">
+                  <span className="text-red-400">{critCount}</span>
+                  <span className="text-slate-600 mx-1">/</span>
+                  <span className="text-amber-400">{highCount}</span>
+                </p>
+              </div>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/30 px-3 py-2 text-xs text-slate-300">
+              <p>Risk score is calculated after context-aware severity tuning.</p>
+              {(tuningSummary?.adjusted_findings_count ?? adjustedFindings) > 0 ? (
+                <p className="mt-1 text-cyan-200">
+                  {(tuningSummary?.adjusted_findings_count ?? adjustedFindings)} findings were adjusted based on contextual analysis.
+                </p>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Executive summary & what this means */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/70 p-5 space-y-3">
+              <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-300">Executive Summary</h4>
+              <p className="text-sm text-slate-300 leading-relaxed">{result.overall.summary}</p>
+              
+              {result.overall.top_priorities.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-slate-800/40 space-y-1.5">
+                  <p className="text-[11px] font-semibold text-slate-500 uppercase">Top 3 Priorities</p>
+                  {result.overall.top_priorities.slice(0, 3).map((p, i) => (
+                    <div key={i} className="flex gap-2 text-xs text-slate-300">
+                      <span className="font-black text-cyan-300 shrink-0">{i + 1}.</span>
+                      <span>{p}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/70 p-5 space-y-3">
+              <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-300">What this means</h4>
+              <p className="text-sm text-slate-300 leading-relaxed">{result.overall.risk_explanation}</p>
+              <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-3 text-[11px] text-slate-400 leading-normal">
+                This report represents a defensive posture scan. None of these checks exploited vulnerabilities, brute-forced directories, or sent high traffic volumes.
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/70 p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-300">Context-Aware Analysis</h4>
+                <p className="text-xs text-slate-500">
+                  Findings remain visible. Context adjusts impact interpretation where platform behavior can differ.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-[11px] text-cyan-200">
+                  Adjusted findings: {tuningSummary?.adjusted_findings_count ?? providerContext?.adjusted_findings ?? adjustedFindings}
+                </span>
+                <span className="rounded border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-200">
+                  Downgraded: {tuningSummary?.downgraded_findings_count ?? 0}
+                </span>
+                <span className="rounded border border-slate-700 bg-slate-900/70 px-2.5 py-1 text-[11px] text-slate-300">
+                  Analyst notes: {analystNotesCount}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Provider Context</p>
+                <p className="mt-2 text-sm text-slate-200">
+                  {providerContext?.known_provider_domain
+                    ? `Known provider domain detected (${providerContext.provider_family || "Managed platform"}).`
+                    : "No known major provider context detected for this hostname."}
+                </p>
+                <p className="mt-1 text-xs text-slate-400">{providerContext?.note || "No additional context note was returned."}</p>
+              </div>
+              <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Severity Distribution</p>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded border border-red-500/20 bg-red-500/5 px-2 py-1 text-red-200">Critical: {critCount}</div>
+                  <div className="rounded border border-red-400/20 bg-red-400/5 px-2 py-1 text-red-200">High: {highCount}</div>
+                  <div className="rounded border border-amber-500/20 bg-amber-500/5 px-2 py-1 text-amber-200">Medium: {medCount}</div>
+                  <div className="rounded border border-emerald-500/20 bg-emerald-500/5 px-2 py-1 text-emerald-200">Low: {lowCount}</div>
+                  <div className="col-span-2 rounded border border-slate-700 bg-slate-900/70 px-2 py-1 text-slate-300">
+                    Informational: {infoCount}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">OWASP Summary</p>
+              {owaspSummary.length === 0 ? (
+                <p className="text-xs text-slate-500">No OWASP aggregation data was returned for this scan.</p>
+              ) : (
+                <div className="space-y-2">
+                  {owaspSummary.map((item) => (
+                    <div key={item.category} className="rounded-lg border border-slate-800 bg-black/25 p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-slate-100">{item.category}</p>
+                        <span className="rounded border border-cyan-400/20 bg-cyan-500/10 px-2 py-0.5 text-[11px] text-cyan-200">
+                          {item.count} finding{item.count === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        Critical {item.critical} | High {item.high} | Medium {item.medium} | Low {item.low} | Info {item.informational ?? 0}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Fix Roadmap Section */}
+          {result.roadmap && result.roadmap.length > 0 && (
+            <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/70 p-5 space-y-4">
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-300">Remediation Roadmap</h4>
+                <p className="text-xs text-slate-500">Prioritized sequence of steps to harden your website security.</p>
+              </div>
+              <div className="space-y-3">
+                {result.roadmap.map(item => (
+                  <div key={item.priority} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/20 p-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded bg-cyan-400/10 border border-cyan-400/20 px-2 py-0.5 text-xs font-bold text-cyan-300 font-mono">
+                          P{item.priority}
+                        </span>
+                        <span className="text-sm font-semibold text-white">{item.action}</span>
+                      </div>
+                      {item.findings.length > 0 && (
+                        <p className="text-[11px] text-slate-500 font-mono">
+                          Linked findings: {item.findings.join(", ")}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <span className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-slate-400 uppercase">
+                        Effort: <span className="text-white">{item.effort}</span>
+                      </span>
+                      <span className="rounded-md border border-slate-800 bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-slate-400 uppercase">
+                        Impact: <span className="text-cyan-300">{item.impact}</span>
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-2xl border border-cyan-400/10 bg-cyber-surface/10 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="w-full flex items-center justify-between p-4 text-left transition hover:bg-slate-900/30"
+            >
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Advanced Analysis</p>
+                <p className="text-[10px] text-slate-500">Passive discovery, TLS versions, CSP quality, correlated risks, and cookie prefix review.</p>
+              </div>
+              <span className={`text-xs font-semibold rounded px-2 py-1 border border-slate-800 bg-slate-900 text-slate-400 transition ${showAdvanced ? "text-cyan-300 border-cyan-400/20" : ""}`}>
+                {showAdvanced ? "Hide Analysis" : "Show Analysis"}
+              </span>
+            </button>
+
+            {showAdvanced ? (
+              <div className="border-t border-slate-800 p-4 space-y-4 bg-slate-950/40">
+                <div className="flex flex-wrap gap-1.5 border-b border-slate-850 pb-2">
+                  {[
+                    { key: "passive", label: "Passive Discovery" },
+                    { key: "tls", label: "TLS Version Security" },
+                    { key: "csp", label: "CSP Quality" },
+                    { key: "hidden-defacement", label: "Hidden SEO Spam" },
+                    { key: "correlated", label: "Correlated Risks" },
+                    { key: "cookie-prefix", label: "Cookie Prefix Review" },
+                  ].map(tab => (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      onClick={() => setActiveAdvancedTab(tab.key)}
+                      className={`rounded px-2.5 py-1 text-xs transition ${activeAdvancedTab === tab.key ? "bg-slate-800 text-white font-bold" : "text-slate-500 hover:text-slate-300"}`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                {activeAdvancedTab === "passive" ? (
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-4 space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">robots.txt</p>
+                      <p className="text-sm text-slate-300">Fetched: {robots?.fetched ? "Yes" : "No"} {robots?.status_code ? `(HTTP ${robots.status_code})` : ""}</p>
+                      <p className="text-xs text-slate-500">Sensitive disclosed paths: {robots?.sensitive_disallow_paths?.length ?? 0}</p>
+                      {robots?.sensitive_disallow_paths?.length ? (
+                        <div className="space-y-1">
+                          {robots.sensitive_disallow_paths.map((entry, idx) => (
+                            <div key={`${entry.path}-${idx}`} className="text-xs font-mono text-amber-300">
+                              {entry.path} (keyword: {entry.keyword})
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-4 space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">sitemap.xml</p>
+                      <p className="text-sm text-slate-300">Fetched: {sitemap?.fetched ? "Yes" : "No"} {sitemap?.status_code ? `(HTTP ${sitemap.status_code})` : ""}</p>
+                      <p className="text-xs text-slate-500">URLs listed: {sitemap?.url_count ?? 0}</p>
+                      <p className="text-xs text-slate-500">Sensitive URL hints: {sitemap?.sensitive_url_count ?? 0}</p>
+                      <p className="text-xs text-slate-500">HTTP URLs in sitemap: {sitemap?.http_url_count ?? 0}</p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {activeAdvancedTab === "tls" ? (
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-4 space-y-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">TLS Version Security</p>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-lg border border-slate-800 bg-black/30 p-3 text-sm">
+                        <p className="text-slate-500">TLS 1.0 supported</p>
+                        <p className={`mt-1 font-semibold ${tlsStatusTone(tlsVersions?.tls_1_0?.status)}`}>{tlsStatusLabel(tlsVersions?.tls_1_0?.status)}</p>
+                        <p className="text-[11px] text-slate-500">{tlsVersions?.tls_1_0?.reason || "No probe data."}</p>
+                      </div>
+                      <div className="rounded-lg border border-slate-800 bg-black/30 p-3 text-sm">
+                        <p className="text-slate-500">TLS 1.1 supported</p>
+                        <p className={`mt-1 font-semibold ${tlsStatusTone(tlsVersions?.tls_1_1?.status)}`}>{tlsStatusLabel(tlsVersions?.tls_1_1?.status)}</p>
+                        <p className="text-[11px] text-slate-500">{tlsVersions?.tls_1_1?.reason || "No probe data."}</p>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-400">{tlsVersions?.recommendation || "Use TLS 1.2+ or TLS 1.3."}</p>
+                  </div>
+                ) : null}
+
+                {activeAdvancedTab === "csp" ? (
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">CSP Quality</p>
+                      <span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${
+                        cspAnalysis?.risk_level === "high"
+                          ? "bg-red-500/20 text-red-300"
+                          : cspAnalysis?.risk_level === "medium"
+                            ? "bg-amber-500/20 text-amber-300"
+                            : "bg-emerald-500/20 text-emerald-300"
+                      }`}>
+                        {(cspAnalysis?.risk_level || "unknown").toUpperCase()}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400">CSP Present: {cspAnalysis?.present ? "Yes" : "No"}</p>
+                    {cspAnalysis?.issues?.length ? (
+                      <div className="space-y-2">
+                        {cspAnalysis.issues.map(issue => (
+                          <div key={issue.id} className="rounded-lg border border-slate-800 bg-black/30 p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-sm text-white">{issue.title}</p>
+                              <span className={`text-[10px] uppercase ${confidenceTone(issue.confidence)}`}>
+                                confidence: {issue.confidence || "high"}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1">{issue.evidence}</p>
+                            {issue.original_severity ? (
+                              <p className="text-[11px] text-cyan-200 mt-1">
+                                Adjusted from {issue.original_severity.toUpperCase()} to {issue.severity.toUpperCase()}
+                                {issue.adjustment_reason ? ` — ${issue.adjustment_reason}` : ""}
+                              </p>
+                            ) : null}
+                            {issue.analyst_note ? <p className="text-[11px] text-slate-300 mt-1">{issue.analyst_note}</p> : null}
+                            <p className="text-xs text-cyan-200 mt-1">{issue.recommendation}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-emerald-300">No CSP weaknesses were detected by this passive parser.</p>
+                    )}
+                  </div>
+                ) : null}
+
+                {activeAdvancedTab === "hidden-defacement" ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-4 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">Hidden Defacement & SEO Spam</p>
+                        <span className={`rounded px-2 py-0.5 text-[11px] font-semibold ${riskLevelColor(String(hiddenDefacement?.risk_level || "informational"))}`}>
+                          {String(hiddenDefacement?.risk_level || "informational").toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        <div className="rounded-lg border border-slate-800 bg-black/30 p-3 text-xs text-slate-300">
+                          Hidden elements checked: <span className="font-semibold text-white">{hiddenDefacement?.hidden_elements_checked ?? 0}</span>
+                        </div>
+                        <div className="rounded-lg border border-slate-800 bg-black/30 p-3 text-xs text-slate-300">
+                          Suspicious hidden elements: <span className="font-semibold text-white">{hiddenDefacement?.suspicious_hidden_elements?.length ?? 0}</span>
+                        </div>
+                        <div className="rounded-lg border border-slate-800 bg-black/30 p-3 text-xs text-slate-300">
+                          Spam keywords: <span className="font-semibold text-white">{hiddenDefacement?.spam_keywords_found?.length ?? 0}</span>
+                        </div>
+                        <div className="rounded-lg border border-slate-800 bg-black/30 p-3 text-xs text-slate-300">
+                          Suspicious links: <span className="font-semibold text-white">{hiddenDefacement?.suspicious_links_found?.length ?? 0}</span>
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-400">
+                        {hiddenDefacement?.summary_note || "Hidden content checks did not identify obvious SEO spam or defacement indicators."}
+                      </p>
+                    </div>
+
+                    {hiddenDefacement?.suspicious_hidden_elements?.length ? (
+                      <div className="space-y-2">
+                        {hiddenDefacement.suspicious_hidden_elements.map((item, idx) => (
+                          <div key={`hidden-signal-${idx}`} className="rounded-lg border border-slate-800 bg-black/30 p-3 text-xs text-slate-300 space-y-1">
+                            <p><span className="text-slate-500">Element:</span> {item.tag || "unknown"}</p>
+                            <p><span className="text-slate-500">Matched hidden CSS:</span> {(item.matched_hidden_patterns || []).join(", ") || "none"}</p>
+                            <p><span className="text-slate-500">Matched keywords:</span> {(item.matched_keywords || []).join(", ") || "none"}</p>
+                            <p><span className="text-slate-500">External link count:</span> {item.external_link_count ?? 0}</p>
+                            <p><span className="text-slate-500">Snippet:</span> {item.snippet || "N/A"}</p>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-4 text-xs text-emerald-300">
+                        No obvious hidden SEO spam indicators were detected in the tested public HTML sample.
+                      </div>
+                    )}
+
+                    {hiddenDefacement?.suspicious_links_found?.length ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-4 space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">Suspicious Hidden Link Domains</p>
+                        {hiddenDefacement.suspicious_links_found.map((link, idx) => (
+                          <p key={`hidden-link-${idx}`} className="text-xs text-slate-300">
+                            {link.domain}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {activeAdvancedTab === "correlated" ? (
+                  <div className="space-y-2">
+                    {correlatedRisks.length === 0 ? (
+                      <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-4 text-xs text-slate-500">
+                        No correlated risk scenarios were detected from combined weak signals.
+                      </div>
+                    ) : (
+                      correlatedRisks.map(scenario => (
+                        <div key={scenario.id} className={`rounded-xl border p-4 space-y-2 ${sevColor(scenario.severity)}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-white">{scenario.title}</p>
+                            <span className="text-[10px] uppercase font-black">{scenario.severity}</span>
+                          </div>
+                          <ul className="list-disc ml-4 space-y-1 text-xs text-slate-300">
+                            {scenario.evidence.map((item, idx) => <li key={`${scenario.id}-e-${idx}`}>{item}</li>)}
+                          </ul>
+                          <p className="text-xs text-slate-300">{scenario.why_it_matters}</p>
+                          <p className="text-xs text-cyan-200">Recommended: {scenario.recommended_actions.join(" | ")}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                ) : null}
+
+                {activeAdvancedTab === "cookie-prefix" ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-4 space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">Sensitive Cookie Names</p>
+                      {cookiePrefixReview?.sensitive_cookies?.length ? (
+                        cookiePrefixReview.sensitive_cookies.map(cookie => (
+                          <div key={cookie.name} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/70 pb-2 last:border-b-0 last:pb-0">
+                            <span className="text-sm font-mono text-cyan-200">{cookie.name}</span>
+                            <span className="text-xs text-slate-400">
+                              prefix={cookie.prefix}, Secure={cookie.secure ? "yes" : "no"}, HttpOnly={cookie.httponly ? "yes" : "no"}, SameSite={cookie.samesite}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-xs text-slate-500">No sensitive cookies detected for prefix checks.</p>
+                      )}
+                    </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-4 space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">Prefix Recommendations</p>
+                      {cookiePrefixReview?.issues?.length ? (
+                        cookiePrefixReview.issues.map((issue, idx) => (
+                          <div key={`${issue.id}-${idx}`} className="text-xs text-slate-300">
+                            <span className="text-amber-300 font-semibold">{issue.title}</span>: {issue.recommendation}
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-xs text-emerald-300">No prefix-specific weaknesses were detected in sensitive cookies.</p>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          {/* Priority-Based Findings Section */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-300">Detailed Findings ({result.findings.length})</h4>
+              <div className="flex gap-1">
+                {critCount > 0 && <span className="rounded bg-red-500/20 border border-red-500/30 px-2 py-0.5 text-[10px] font-bold text-red-300">{critCount} Critical</span>}
+                {highCount > 0 && <span className="rounded bg-orange-500/20 border border-orange-500/30 px-2 py-0.5 text-[10px] font-bold text-orange-300">{highCount} High</span>}
+                {medCount > 0 && <span className="rounded bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 text-[10px] font-bold text-amber-300">{medCount} Medium</span>}
+                {lowCount + infoCount > 0 && <span className="rounded bg-slate-800 border border-slate-700 px-2 py-0.5 text-[10px] font-bold text-slate-400">{lowCount + infoCount} Low/Info</span>}
+              </div>
+            </div>
+
+            {result.findings.length === 0 ? (
+              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/5 p-6 text-center space-y-1">
+                <p className="text-sm font-bold text-emerald-300">No critical or high-risk findings were detected by the safe assessment.</p>
+                <p className="text-xs text-emerald-200/60">This does not guarantee the website is vulnerability-free. The analyzer performs safe non-invasive checks only.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {result.findings.map(f => (
+                  <div key={f.id} className={`rounded-2xl border p-4 space-y-3 transition ${sevColor(f.severity)}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/40 pb-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-block rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase ${sevColor(f.severity)}`}>
+                          {f.severity}
+                        </span>
+                        <span className={`text-[10px] font-semibold uppercase ${confidenceTone(f.confidence)}`}>
+                          Confidence: {String(f.confidence || "high")}
+                        </span>
+                        <span className="text-sm font-bold text-white">{f.title}</span>
+                      </div>
+                      <span className="rounded bg-slate-900 border border-slate-800 px-2 py-0.5 text-[10px] font-mono text-slate-400">
+                        Priority {f.priority}
+                      </span>
+                    </div>
+
+                    {f.original_severity ? (
+                      <div className="rounded-lg border border-cyan-400/20 bg-cyan-500/5 px-3 py-2 text-xs text-cyan-200">
+                        Severity adjusted from <span className="font-semibold uppercase">{f.original_severity}</span> to{" "}
+                        <span className="font-semibold uppercase">{f.severity}</span>.
+                        {f.adjustment_reason ? <span className="block mt-1 text-cyan-100/85">{f.adjustment_reason}</span> : null}
+                      </div>
+                    ) : null}
+
+                    <div className="grid gap-3 sm:grid-cols-2 text-xs leading-relaxed">
+                      <div className="space-y-1">
+                        <p className="font-semibold text-slate-400">What happened</p>
+                        <p className="text-slate-300 font-mono bg-slate-950/40 p-2 rounded border border-slate-800/25">{f.evidence}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="font-semibold text-slate-400">Why it matters</p>
+                        <p className="text-slate-300 p-1">{f.impact}</p>
+                      </div>
+                    </div>
+
+                    <div className="text-xs pt-1 border-t border-slate-800/20 space-y-1">
+                      <p className="font-semibold text-slate-400">How to fix</p>
+                      <p className="text-slate-300 font-medium">{f.recommendation}</p>
+                    </div>
+
+                    {f.analyst_note ? (
+                      <div className="rounded-lg border border-slate-700 bg-slate-900/60 px-3 py-2 text-xs text-slate-300">
+                        <p className="font-semibold text-slate-200">Analyst note</p>
+                        <p className="mt-1">{f.analyst_note}</p>
+                      </div>
+                    ) : null}
+
+                    {f.owasp_category && (
+                      <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono pt-1">
+                        <span>OWASP Mapping: {f.owasp_category}</span>
+                        <span>ID: {f.id}</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Scan History */}
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Scan History</h4>
+                <p className="text-xs text-slate-500">
+                  Track previous scans for this website and monitor security improvement over time.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-md border border-slate-700 bg-slate-900/70 px-2 py-1 text-[10px] text-slate-300">
+                  Local browser scan history
+                </span>
+                <Link to="/scan-history" className="rounded-md border border-cyan-400/20 bg-cyan-500/10 px-2.5 py-1 text-[10px] text-cyan-200 hover:border-cyan-300/40">
+                  Open Full History
+                </Link>
+              </div>
+            </div>
+
+            {historyForCurrentHost.length === 0 ? (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-4 text-xs text-slate-400">
+                No previous scans found. Run a scan to start tracking your website security over time.
+              </div>
+            ) : (
+              <div className="table-wrapper">
+                <table className="tbl w-full text-left">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-[0.08em] text-slate-500">
+                      <th className="px-3 py-2">Scan Date</th>
+                      <th className="px-3 py-2">Target</th>
+                      <th className="px-3 py-2">Risk Score</th>
+                      <th className="px-3 py-2">Risk Level</th>
+                      <th className="px-3 py-2">Findings</th>
+                      <th className="px-3 py-2">Critical/High</th>
+                      <th className="px-3 py-2">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyForCurrentHost.slice(0, 10).map((scan) => (
+                      <tr key={scan.id} className="border-t border-slate-800/80">
+                        <td className="px-3 py-2 text-xs text-slate-400">{new Date(scan.scan_date).toLocaleString()}</td>
+                        <td className="px-3 py-2 text-xs text-slate-200">{scan.target_url}</td>
+                        <td className="px-3 py-2 text-xs text-slate-200">{scan.risk_score}/100</td>
+                        <td className="px-3 py-2 text-xs text-slate-400">{scan.risk_level}</td>
+                        <td className="px-3 py-2 text-xs text-slate-400">{scan.findings_count}</td>
+                        <td className="px-3 py-2 text-xs text-slate-400">{scan.critical_count}/{scan.high_count}</td>
+                        <td className="px-3 py-2">
+                          <div className="flex flex-wrap gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedHistoryScan(scan)}
+                              className="rounded border border-slate-700 px-2 py-1 text-[10px] text-slate-300 hover:text-white"
+                            >
+                              View Report
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => exportScanTxt(scan)}
+                              className="rounded border border-slate-700 px-2 py-1 text-[10px] text-slate-300 hover:text-white"
+                            >
+                              Export TXT
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => exportScanJson(scan)}
+                              className="rounded border border-slate-700 px-2 py-1 text-[10px] text-slate-300 hover:text-white"
+                            >
+                              Export JSON
+                            </button>
+                            {historyForCurrentHost[0]?.id === scan.id && latestHostComparison ? (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => exportScanComparisonTxt(latestHostComparison)}
+                                  className="rounded border border-cyan-400/25 px-2 py-1 text-[10px] text-cyan-200 hover:border-cyan-300/50"
+                                >
+                                  Compare TXT
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => exportScanComparisonJson(latestHostComparison)}
+                                  className="rounded border border-cyan-400/25 px-2 py-1 text-[10px] text-cyan-200 hover:border-cyan-300/50"
+                                >
+                                  Compare JSON
+                                </button>
+                              </>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Risk Comparison */}
+          <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 space-y-3">
+            <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Compare</h4>
+            {latestHostComparison ? (
+              <>
+                <div className="grid gap-3 md:grid-cols-4">
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-3 text-xs text-slate-300">
+                    <p className="text-[10px] uppercase text-slate-500">Previous Score</p>
+                    <p className="mt-1 text-lg font-bold text-slate-100">{latestHostComparison.previous.risk_score}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-3 text-xs text-slate-300">
+                    <p className="text-[10px] uppercase text-slate-500">Current Score</p>
+                    <p className="mt-1 text-lg font-bold text-slate-100">{latestHostComparison.latest.risk_score}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-3 text-xs text-slate-300">
+                    <p className="text-[10px] uppercase text-slate-500">Score Change</p>
+                    <p className={`mt-1 text-lg font-bold ${latestHostComparison.risk_delta < 0 ? "text-emerald-300" : latestHostComparison.risk_delta > 0 ? "text-red-300" : "text-slate-200"}`}>
+                      {latestHostComparison.risk_delta > 0 ? `+${latestHostComparison.risk_delta}` : latestHostComparison.risk_delta}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-3 text-xs text-slate-300">
+                    <p className="text-[10px] uppercase text-slate-500">Critical/High Change</p>
+                    <p className="mt-1 text-lg font-bold text-slate-100">
+                      {latestHostComparison.critical_delta > 0 ? `+${latestHostComparison.critical_delta}` : latestHostComparison.critical_delta}/
+                      {latestHostComparison.high_delta > 0 ? `+${latestHostComparison.high_delta}` : latestHostComparison.high_delta}
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-400">
+                  {latestHostComparison.risk_delta < 0
+                    ? `Improved by ${Math.abs(latestHostComparison.risk_delta)} points.`
+                    : latestHostComparison.risk_delta > 0
+                      ? `Risk increased by ${latestHostComparison.risk_delta} points.`
+                      : "Risk score did not change."}
+                </p>
+
+                <div className="grid gap-3 lg:grid-cols-3">
+                  <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3">
+                    <p className="text-[11px] font-semibold uppercase text-emerald-300">Fixed</p>
+                    {latestHostComparison.fixed.length ? (
+                      <ul className="mt-2 space-y-1 text-xs text-slate-200">
+                        {latestHostComparison.fixed.slice(0, 5).map((item) => (
+                          <li key={item.id}>{item.title} was not observed in the latest scan.</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-xs text-slate-400">No fixed findings in this comparison.</p>
+                    )}
+                  </div>
+                  <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3">
+                    <p className="text-[11px] font-semibold uppercase text-amber-300">Still Open</p>
+                    {latestHostComparison.still_open.length ? (
+                      <ul className="mt-2 space-y-1 text-xs text-slate-200">
+                        {latestHostComparison.still_open.slice(0, 5).map((item) => (
+                          <li key={item.id}>{item.title}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-xs text-slate-400">No still-open findings in this comparison.</p>
+                    )}
+                  </div>
+                  <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3">
+                    <p className="text-[11px] font-semibold uppercase text-red-300">New</p>
+                    {latestHostComparison.added.length ? (
+                      <ul className="mt-2 space-y-1 text-xs text-slate-200">
+                        {latestHostComparison.added.slice(0, 5).map((item) => (
+                          <li key={item.id}>{item.title}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-xs text-slate-400">No new findings in this comparison.</p>
+                    )}
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-500">
+                  Comparison is based on findings observed by the safe Website Security Analyzer. A finding marked as fixed means it was not observed in the latest scan, not that the entire website is guaranteed secure.
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-slate-500">Run another scan for this website to compare progress.</p>
+            )}
+          </div>
+
+          {selectedHistoryScan ? (
+            <div className="rounded-2xl border border-slate-800 bg-slate-950/40 p-5 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Selected History Report</h4>
+                <button
+                  type="button"
+                  onClick={() => setSelectedHistoryScan(null)}
+                  className="rounded border border-slate-700 px-2 py-1 text-[10px] text-slate-300 hover:text-white"
+                >
+                  Close
+                </button>
+              </div>
+              <p className="text-xs text-slate-300">
+                {selectedHistoryScan.target_url} | {selectedHistoryScan.risk_score}/100 ({selectedHistoryScan.risk_level.toUpperCase()})
+              </p>
+              <p className="text-xs text-slate-400">{selectedHistoryScan.summary}</p>
+            </div>
+          ) : null}
+
+          {/* Export Actions Panel */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+            <div className="space-y-0.5">
+              <p className="text-xs font-bold text-white">Export Assessment Report</p>
+              <p className="text-[10px] text-slate-500">Download formatted technical details or summary views.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={copySummary} className="rounded-lg border border-slate-800 bg-cyber-elevated px-3.5 py-1.5 text-xs text-cyber-muted transition hover:border-cyber-cyan/40 hover:text-cyber-cyan">
+                <Copy className="inline h-3.5 w-3.5 mr-1.5" />Copy Summary
+              </button>
+              <button type="button" onClick={exportJson} className="rounded-lg border border-slate-800 bg-cyber-elevated px-3.5 py-1.5 text-xs text-cyber-muted transition hover:border-cyber-cyan/40 hover:text-cyber-cyan">
+                Export JSON
+              </button>
+              <button type="button" onClick={exportTxt} className="rounded-lg border border-slate-800 bg-cyber-elevated px-3.5 py-1.5 text-xs text-cyber-muted transition hover:border-cyber-cyan/40 hover:text-cyber-cyan">
+                Export TXT
+              </button>
+            </div>
+          </div>
+
+          {/* Expandable Technical Details Toggle (default: collapsed) */}
+          <div className="rounded-2xl border border-cyan-400/10 bg-cyber-surface/10 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setShowTechDetails(!showTechDetails)}
+              className="w-full flex items-center justify-between p-4 text-left transition hover:bg-slate-900/30"
+            >
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Technical Details / Diagnostics</p>
+                <p className="text-[10px] text-slate-500">Review raw HTTP headers, cookies, sitemap status, and tech headers.</p>
+              </div>
+              <span className={`text-xs font-semibold rounded px-2 py-1 border border-slate-800 bg-slate-900 text-slate-400 transition transform ${showTechDetails ? "text-cyan-300 border-cyan-400/20" : ""}`}>
+                {showTechDetails ? "Hide Details" : "Show Details"}
+              </span>
+            </button>
+
+            {showTechDetails && (
+              <div className="border-t border-slate-800 p-4 space-y-4 bg-slate-950/40">
+                {/* Tech subtabs */}
+                <div className="flex flex-wrap gap-1.5 border-b border-slate-850 pb-2">
+                  {["headers", "cookies", "paths", "technology", "forms", "raw_json"].map(t => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setActiveTechTab(t)}
+                      className={`rounded px-2.5 py-1 text-xs font-mono transition ${activeTechTab === t ? "bg-slate-800 text-white font-bold" : "text-slate-500 hover:text-slate-300"}`}
+                    >
+                      {t.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Tech subtab content */}
+                {activeTechTab === "headers" && (
+                  <div className="space-y-2">
+                    {result.checks.headers.map(h => (
+                      <div key={h.header} className={`flex items-center justify-between rounded-xl border px-4 py-3 text-sm ${h.present ? "border-emerald-400/20 bg-emerald-500/5 text-emerald-300" : "border-red-400/20 bg-red-500/5 text-red-300"}`}>
+                        <span className="font-mono font-semibold">{h.header}</span>
+                        <span className="text-xs">{h.present ? h.value || "Present" : "Missing"}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {activeTechTab === "cookies" && (
+                  <div className="space-y-2">
+                    {result.checks.cookies.length === 0 && <div className="text-xs text-slate-500 p-2 font-mono">No cookies detected.</div>}
+                    {result.checks.cookies.map((c, i) => (
+                      <div key={i} className="rounded-xl border border-cyan-400/10 bg-cyber-elevated/40 p-4 text-xs space-y-1 font-mono">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-cyan-200">{c.name}</span>
+                          {c.is_session_cookie && <span className="rounded bg-amber-500/20 px-2 py-0.5 text-[9px] text-amber-300 font-bold font-sans">SESSION</span>}
+                        </div>
+                        <div className="flex flex-wrap gap-3 text-slate-400">
+                          <span>Secure: <span className={c.secure ? "text-emerald-300 font-bold" : "text-red-300"}>{c.secure ? "Yes" : "No"}</span></span>
+                          <span>HttpOnly: <span className={c.httponly ? "text-emerald-300 font-bold" : "text-red-300"}>{c.httponly ? "Yes" : "No"}</span></span>
+                          <span>SameSite: <span className={c.samesite !== "missing" ? "text-emerald-300 font-bold" : "text-red-300"}>{c.samesite}</span></span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {activeTechTab === "paths" && (
+                  <div className="space-y-2">
+                    {result.checks.exposed_paths.map((p, i) => (
+                      <div key={i} className={`flex items-center justify-between rounded-xl border px-4 py-3 text-sm ${p.accessible ? "border-amber-400/20 bg-amber-500/5 text-amber-200 font-semibold" : "border-slate-800 bg-slate-900/20 text-slate-500"}`}>
+                        <span className="font-mono">{p.path}</span>
+                        <span className="text-xs font-mono">{p.status_code ?? "N/A"} {p.accessible ? "Accessible" : "Blocked"}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {activeTechTab === "technology" && (
+                  <div className="space-y-2">
+                    {result.checks.technology.length === 0 && <div className="text-xs text-slate-500 p-2 font-mono">No technical signatures exposed in server response.</div>}
+                    {result.checks.technology.map((t, i) => (
+                      <div key={i} className="rounded-xl border border-cyan-400/10 bg-cyber-elevated/40 p-4 text-xs space-y-1">
+                        <span className="font-semibold text-cyan-200 font-mono">{t.type}</span>
+                        <p className="font-mono text-slate-300">{t.value}</p>
+                        <p className="text-slate-500">{t.recommendation}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {activeTechTab === "forms" && (
+                  <div className="space-y-2">
+                    {result.checks.forms.length === 0 && <div className="text-xs text-slate-500 p-2 font-mono">No forms found on target page.</div>}
+                    {result.checks.forms.map((f: any, i: number) => (
+                      <div key={i} className="rounded-xl border border-cyan-400/10 bg-cyber-elevated/40 p-4 text-xs space-y-1 font-mono">
+                        <span className="font-semibold text-cyan-200">Form #{i + 1}</span>
+                        <div className="flex flex-wrap gap-3 text-slate-400">
+                          <span>Password field: <span className={f.has_password ? "text-amber-300 font-bold" : "text-slate-500"}>{f.has_password ? "Yes" : "No"}</span></span>
+                          <span>File upload: <span className={f.has_file_upload ? "text-amber-300 font-bold" : "text-slate-500"}>{f.has_file_upload ? "Yes" : "No"}</span></span>
+                          <span>CSRF token: <span className={f.csrf_token_present ? "text-emerald-300 font-bold" : "text-red-300"}>{f.csrf_token_present ? "Yes" : "No"}</span></span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {activeTechTab === "raw_json" && (
+                  <div className="max-h-[300px] overflow-y-auto rounded-xl border border-slate-800 bg-black/60 p-4 font-mono text-[11px] text-emerald-400">
+                    <pre>{JSON.stringify(result, null, 2)}</pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Safety note */}
+          <div className="flex items-start gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/5 px-4 py-3 text-xs text-emerald-200">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+            <span>{result.safety_model.note}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ───────────── 16. Email Breach Checker ───────────── */
+
+function normalizeDomainInput(value: string): { domain: string; error: string | null } {
+  const raw = value.trim().toLowerCase();
+  if (!raw) return { domain: "", error: "Please enter a valid domain." };
+  if (raw.includes("@")) return { domain: "", error: "Please enter a domain, not an email address." };
+
+  let hostname = "";
+  try {
+    const parsed = new URL(raw.startsWith("http://") || raw.startsWith("https://") ? raw : `https://${raw}`);
+    hostname = parsed.hostname.toLowerCase();
+  } catch {
+    return { domain: "", error: "Please enter a valid domain." };
+  }
+
+  if (!hostname) return { domain: "", error: "Please enter a valid domain." };
+  if (hostname === "localhost" || hostname.endsWith(".local") || hostname.endsWith(".internal")) {
+    return { domain: "", error: "Local or internal hostnames are not allowed." };
+  }
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || hostname.includes(":")) {
+    return { domain: "", error: "Please enter a domain, not an IP address." };
+  }
+  if (!hostname.includes(".")) return { domain: "", error: "Please enter a root domain like example.com." };
+  if (!/^[a-z0-9.-]+$/.test(hostname)) return { domain: "", error: "Domain contains unsupported characters." };
+
+  return { domain: hostname, error: null };
+}
+
+function DomainSpoofingDefenseTool() {
+  const [domainInput, setDomainInput] = useState("");
+  const [authorized, setAuthorized] = useState(false);
+  const [maxVariants, setMaxVariants] = useState<10 | 20 | 50>(20);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [result, setResult] = useState<DomainSpoofingResponse | null>(null);
+
+  const normalized = useMemo(() => normalizeDomainInput(domainInput), [domainInput]);
+  const canRun = Boolean(normalized.domain) && authorized && !loading;
+
+  const runCheck = useCallback(async () => {
+    setError(null);
+    setNotice(null);
+    setResult(null);
+
+    if (normalized.error) {
+      setError(normalized.error);
+      return;
+    }
+    if (!normalized.domain) {
+      setError("Please enter a valid domain.");
+      return;
+    }
+    if (!authorized) {
+      setError("Please confirm you own this brand/domain or have permission to monitor impersonation risks.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await checkDomainSpoofing(normalized.domain, true, maxVariants);
+      setResult(response);
+    } catch (err) {
+      setError(toUserErrorMessage(err, "Unable to complete action. Please try again."));
+    } finally {
+      setLoading(false);
+    }
+  }, [authorized, maxVariants, normalized.domain, normalized.error]);
+
+  const clearAll = useCallback(() => {
+    setDomainInput("");
+    setAuthorized(false);
+    setMaxVariants(20);
+    setLoading(false);
+    setError(null);
+    setNotice(null);
+    setResult(null);
+  }, []);
+
+  const buildSummary = useCallback((payload: DomainSpoofingResponse) => {
+    const lines = [
+      "LogShield Domain Spoofing Defense Report",
+      `Date: ${new Date().toLocaleString()}`,
+      `Target Domain: ${payload.target.domain}`,
+      `Brand: ${payload.target.brand}`,
+      `Variants Generated: ${payload.summary.variants_generated}`,
+      `Active/Resolving Variants: ${payload.summary.registered_or_resolving}`,
+      `MX-enabled Variants: ${payload.summary.mx_enabled}`,
+      `Highest Risk: ${payload.summary.highest_risk.toUpperCase()}`,
+      "",
+      "Top Priorities:",
+      ...payload.summary.top_priorities.map((item, idx) => `${idx + 1}. ${item}`),
+      "",
+      "Top Findings:",
+      ...payload.findings.slice(0, 10).map((finding) => `- [${finding.severity.toUpperCase()}] ${finding.title}: ${finding.evidence}`),
+      "",
+      "Recommendations:",
+      ...payload.variants.slice(0, 20).map((item) => `- ${item.domain}: ${item.recommendation}`),
+      "",
+      "Safety Model:",
+      payload.safety_model.note,
+    ];
+    return lines.join("\n");
+  }, []);
+
+  const copySummary = useCallback(() => {
+    if (!result) return;
+    void navigator.clipboard.writeText(buildSummary(result));
+    setNotice("Summary copied to clipboard.");
+  }, [buildSummary, result]);
+
+  const exportTxt = useCallback(() => {
+    if (!result) return;
+    const blob = new Blob([buildSummary(result)], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `logshield-domain-spoofing-${result.target.domain}-${new Date().toISOString().slice(0, 10)}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [buildSummary, result]);
+
+  const exportJson = useCallback(() => {
+    if (!result) return;
+    const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `logshield-domain-spoofing-${result.target.domain}-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, [result]);
+
+  return (
+    <div className="space-y-5">
+      <InfoHint title="Defensive brand protection only">
+        Only monitor domains you own or are authorized to protect. This tool does not create phishing content, does not register domains, and performs limited passive DNS checks only.
+      </InfoHint>
+
+      <div className="rounded-2xl border border-cyan-400/15 bg-cyber-elevated/40 p-4 space-y-3">
+        <div className="grid gap-3 md:grid-cols-[1fr_180px]">
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Domain</label>
+            <input
+              type="text"
+              value={domainInput}
+              onChange={(event) => setDomainInput(event.target.value)}
+              placeholder="example.com"
+              className="mt-1 w-full rounded-xl border border-cyan-400/15 bg-cyber-surface px-3 py-2 text-sm text-cyber-text placeholder:text-cyber-muted focus:border-cyan-300/50 focus:outline-none"
+            />
+            {normalized.domain ? <p className="mt-1 text-[11px] text-cyan-200">Normalized domain: {normalized.domain}</p> : null}
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">Max Variants</label>
+            <select
+              value={maxVariants}
+              onChange={(event) => setMaxVariants(Number(event.target.value) as 10 | 20 | 50)}
+              className="mt-1 w-full rounded-xl border border-cyan-400/15 bg-cyber-surface px-3 py-2 text-sm text-cyber-text focus:border-cyan-300/50 focus:outline-none"
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+            </select>
+          </div>
+        </div>
+
+        <label className="flex items-start gap-2 text-sm text-cyber-text cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={authorized}
+            onChange={(event) => setAuthorized(event.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-cyan-400/30 bg-cyber-surface text-cyan-400 focus:ring-cyan-400/40"
+          />
+          I confirm that I own this brand/domain or have permission to monitor impersonation risks.
+        </label>
+
+        <div className="flex flex-wrap gap-2">
+          <ActionBtn label={loading ? "Checking..." : "Run Check"} onClick={runCheck} disabled={!canRun} />
+          <ClearBtn onClick={clearAll} />
+        </div>
+      </div>
+
+      {normalized.error && domainInput.trim() ? <ToolError message={normalized.error} /> : null}
+      {error ? <ToolError message={error} /> : null}
+      {notice ? <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/5 px-3 py-2 text-xs text-cyan-200">{notice}</div> : null}
+
+      {result ? (
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3 text-center">
+              <p className="text-[10px] uppercase text-slate-500">Variants Generated</p>
+              <p className="text-xl font-black text-white">{result.summary.variants_generated}</p>
+            </div>
+            <div className="rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-3 text-center">
+              <p className="text-[10px] uppercase text-cyan-300/80">Active / Resolving</p>
+              <p className="text-xl font-black text-cyan-200">{result.summary.registered_or_resolving}</p>
+            </div>
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-center">
+              <p className="text-[10px] uppercase text-amber-300/80">MX Enabled</p>
+              <p className="text-xl font-black text-amber-200">{result.summary.mx_enabled}</p>
+            </div>
+            <div className={`rounded-xl border p-3 text-center ${breachRiskTone(result.summary.highest_risk)}`}>
+              <p className="text-[10px] uppercase">Highest Risk</p>
+              <p className="text-xl font-black uppercase">{result.summary.highest_risk}</p>
+            </div>
+            <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3 text-center">
+              <p className="text-[10px] uppercase text-slate-500">Target</p>
+              <p className="text-sm font-black text-white">{result.target.domain}</p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">Top Priority Actions</p>
+            <ul className="space-y-1 text-sm text-slate-300">
+              {result.summary.top_priorities.map((priority) => (
+                <li key={priority} className="flex gap-2">
+                  <span className="text-cyan-300">•</span>
+                  <span>{priority}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="space-y-2">
+            <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">Variant Signals</h4>
+            <div className="table-wrapper">
+              <table className="tbl w-full text-left">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-[0.08em] text-slate-500">
+                    <th className="px-3 py-2">Lookalike Domain</th>
+                    <th className="px-3 py-2">Technique</th>
+                    <th className="px-3 py-2">DNS</th>
+                    <th className="px-3 py-2">MX</th>
+                    <th className="px-3 py-2">Risk</th>
+                    <th className="px-3 py-2">Recommendation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.variants.map((variant: DomainSpoofingVariant) => (
+                    <tr key={variant.domain} className="border-t border-slate-800/70">
+                      <td className="px-3 py-2 text-xs font-mono text-cyan-200">{variant.domain}</td>
+                      <td className="px-3 py-2 text-xs text-slate-400">{variant.technique}</td>
+                      <td className="px-3 py-2 text-xs text-slate-300">
+                        {variant.dns_resolves
+                          ? `A:${variant.a_records.length} AAAA:${variant.aaaa_records.length} CNAME:${variant.cname_records.length}`
+                          : "No signal"}
+                      </td>
+                      <td className="px-3 py-2 text-xs text-slate-300">{variant.has_mx ? "MX present" : "No MX"}</td>
+                      <td className="px-3 py-2 text-xs">
+                        <span className={`rounded border px-2 py-0.5 text-[10px] uppercase font-semibold ${breachRiskTone(variant.risk_level)}`}>
+                          {variant.risk_level}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-xs text-slate-400">{variant.recommendation}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <h4 className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">Findings</h4>
+            {result.findings.length ? (
+              <div className="space-y-2">
+                {result.findings.map((finding: DomainSpoofingFinding) => (
+                  <div key={finding.id} className={`rounded-xl border p-3 ${sevColor(finding.severity)}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-white">{finding.title}</p>
+                      <span className="text-[10px] uppercase font-black">{finding.severity}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-300">{finding.evidence}</p>
+                    <p className="mt-1 text-xs text-cyan-200">{finding.recommendation}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500">No findings were generated in this run.</p>
+            )}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-800 bg-slate-900/30 p-4">
+            <p className="text-xs text-slate-400">Potential risk indicators only. This tool does not confirm phishing content.</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={copySummary} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:text-white">
+                <Copy className="mr-1 inline h-3.5 w-3.5" />
+                Copy Summary
+              </button>
+              <button type="button" onClick={exportTxt} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:text-white">
+                Export TXT
+              </button>
+              <button type="button" onClick={exportJson} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:text-white">
+                Export JSON
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/5 px-3 py-2 text-xs text-emerald-200">
+            {result.safety_model.note}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type BreachInputMode = "single" | "paste" | "upload";
+
+const EMAIL_PATTERN = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+const MAX_BREACH_EMAILS = 100;
+const MAX_UPLOAD_BYTES = 1024 * 1024;
+const ALLOWED_UPLOAD_EXTENSIONS = [".txt", ".csv", ".json", ".log", ".md"];
+
+function normalizeEmailCandidate(value: string): string {
+  return value.trim().replace(/^[<("'`\[]+/, "").replace(/[>)"'`\].,;:!?]+$/, "").toLowerCase();
+}
+
+function isValidEmail(value: string): boolean {
+  return EMAIL_PATTERN.test(value);
+}
+
+function maskEmail(email: string): string {
+  const [local, domain] = email.split("@");
+  if (!local || !domain) return "***";
+  if (local.length <= 1) return `*@${domain}`;
+  if (local.length === 2) return `${local[0]}*@${domain}`;
+  return `${local[0]}***${local[local.length - 1]}@${domain}`;
+}
+
+function extractEmailsFromText(text: string) {
+  const tokens = text.split(/[\s,;|]+/).map(normalizeEmailCandidate).filter(Boolean);
+  const candidates = tokens.filter((token) => token.includes("@"));
+  const validCandidates = candidates.filter(isValidEmail);
+  const unique = Array.from(new Set(validCandidates));
+  const invalidIgnored = Math.max(0, candidates.length - validCandidates.length);
+  const duplicatesRemoved = Math.max(0, validCandidates.length - unique.length);
+  const tooMany = unique.length > MAX_BREACH_EMAILS;
+  return {
+    emails: unique.slice(0, MAX_BREACH_EMAILS),
+    totalDetected: candidates.length,
+    invalidIgnored,
+    duplicatesRemoved,
+    limited: tooMany,
+  };
+}
+
+function breachRiskTone(level: string): string {
+  switch (level) {
+    case "critical":
+      return "border-red-500/40 bg-red-500/15 text-red-200";
+    case "high":
+      return "border-red-400/30 bg-red-500/10 text-red-200";
+    case "medium":
+      return "border-amber-400/30 bg-amber-500/10 text-amber-200";
+    default:
+      return "border-emerald-400/25 bg-emerald-500/10 text-emerald-300";
+  }
+}
+
+function breachStatusTone(status: string): string {
+  switch (status) {
+    case "exposed":
+      return "border-red-400/30 bg-red-500/10 text-red-200";
+    case "not_found":
+      return "border-emerald-400/25 bg-emerald-500/10 text-emerald-300";
+    case "provider_error":
+      return "border-amber-400/25 bg-amber-500/10 text-amber-200";
+    default:
+      return "border-slate-600/30 bg-slate-700/20 text-slate-300";
+  }
+}
+
+function EmailBreachCheckerTool() {
+  const requireAuth = useToolAuthGate();
+  const [mode, setMode] = useState<BreachInputMode>("single");
+  const [singleEmail, setSingleEmail] = useState("");
+  const [pasteText, setPasteText] = useState("");
+  const [emails, setEmails] = useState<string[]>([]);
+  const [authConfirmed, setAuthConfirmed] = useState(false);
+  const [showFullEmails, setShowFullEmails] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<EmailBreachCheckResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [extractStats, setExtractStats] = useState<{
+    totalDetected: number;
+    invalidIgnored: number;
+    duplicatesRemoved: number;
+    limited: boolean;
+  }>({ totalDetected: 0, invalidIgnored: 0, duplicatesRemoved: 0, limited: false });
+  const [detailsItem, setDetailsItem] = useState<EmailBreachResult | null>(null);
+
+  const canCheck = authConfirmed && emails.length > 0 && !loading;
+
+  const clearAll = useCallback(() => {
+    setSingleEmail("");
+    setPasteText("");
+    setEmails([]);
+    setAuthConfirmed(false);
+    setShowFullEmails(false);
+    setLoading(false);
+    setResult(null);
+    setError(null);
+    setNotice(null);
+    setDetailsItem(null);
+    setExtractStats({ totalDetected: 0, invalidIgnored: 0, duplicatesRemoved: 0, limited: false });
+  }, []);
+
+  const setFromText = useCallback((text: string) => {
+    const extracted = extractEmailsFromText(text);
+    setEmails(extracted.emails);
+    setExtractStats({
+      totalDetected: extracted.totalDetected,
+      invalidIgnored: extracted.invalidIgnored,
+      duplicatesRemoved: extracted.duplicatesRemoved,
+      limited: extracted.limited,
+    });
+    if (extracted.limited) {
+      setNotice("More than 100 emails were detected. Only the first 100 will be checked.");
+    } else if (extracted.emails.length === 0) {
+      setNotice("No valid email addresses were found.");
+    } else {
+      setNotice(null);
+    }
+  }, []);
+
+  const handleExtractPaste = useCallback(() => {
+    setError(null);
+    setResult(null);
+    setFromText(pasteText);
+  }, [pasteText, setFromText]);
+
+  const handleSingleInputChange = useCallback((value: string) => {
+    setSingleEmail(value);
+    setError(null);
+    setResult(null);
+    const normalized = normalizeEmailCandidate(value);
+    if (!normalized) {
+      setEmails([]);
+      setNotice(null);
+      return;
+    }
+    if (!isValidEmail(normalized)) {
+      setEmails([]);
+      setNotice("Please enter a valid email address.");
+      return;
+    }
+    setEmails([normalized]);
+    setNotice(null);
+    setExtractStats({ totalDetected: 1, invalidIgnored: 0, duplicatesRemoved: 0, limited: false });
+  }, []);
+
+  const handleFileUpload = useCallback(async (file: File | null) => {
+    setError(null);
+    setResult(null);
+    if (!file) return;
+
+    const fileName = file.name.toLowerCase();
+    const extension = fileName.slice(fileName.lastIndexOf("."));
+    if (!ALLOWED_UPLOAD_EXTENSIONS.includes(extension)) {
+      setError("Invalid file type. Allowed: .txt, .csv, .json, .log, .md");
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setError("File is too large. Maximum size is 1 MB.");
+      return;
+    }
+
+    const text = await file.text();
+    setFromText(text);
+  }, [setFromText]);
+
+  const buildSummaryText = useCallback((scanResult: EmailBreachCheckResponse, includeFull: boolean) => {
+    const lines = [
+      "LogShield Email Breach Checker Report",
+      `Date: ${new Date().toLocaleString()}`,
+      `Provider: ${scanResult.provider}`,
+      `Provider Configured: ${scanResult.provider_configured ? "Yes" : "No"}`,
+      `Total Checked: ${scanResult.summary.total_checked}`,
+      `Exposed: ${scanResult.summary.exposed_count}`,
+      `Not Found: ${scanResult.summary.not_found_count}`,
+      `Unknown / Provider Errors: ${scanResult.summary.unknown_count}`,
+      `Highest Risk: ${scanResult.summary.highest_risk.toUpperCase()}`,
+      "",
+      "Top Priority Actions:",
+      ...scanResult.summary.top_priorities.map((item, idx) => `${idx + 1}. ${item}`),
+      "",
+      "Email Results:",
+      ...scanResult.results.map((item) => {
+        const emailValue = includeFull && item.email_normalized ? item.email_normalized : item.email;
+        const names = item.breaches.map((breach) => breach.name).filter(Boolean).slice(0, 4).join(", ") || "N/A";
+        return `- ${emailValue}: status=${item.status}, exposed=${item.exposed ? "yes" : "no"}, breach_count=${item.breach_count}, risk=${item.risk_level}, breaches=${names}`;
+      }),
+      "",
+      "Safety Model:",
+      scanResult.safety_model.note,
+    ];
+    return lines.join("\n");
+  }, []);
+
+  const runCheck = useCallback(async () => {
+    setError(null);
+    setNotice(null);
+    setResult(null);
+
+    if (!authConfirmed) {
+      setError("Please confirm you are authorized to check these email addresses.");
+      return;
+    }
+    if (emails.length === 0) {
+      setError("No valid email addresses were found.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const scanResult = await checkEmailBreaches(emails, true);
+      setResult(scanResult);
+    } catch (err) {
+      setError(toUserErrorMessage(err, "Unable to complete action. Please try again."));
+    } finally {
+      setLoading(false);
+    }
+  }, [authConfirmed, emails]);
+
+  const copySummary = useCallback(() => {
+    if (!result) return;
+    void navigator.clipboard.writeText(buildSummaryText(result, showFullEmails));
+    setNotice("Summary copied to clipboard.");
+  }, [buildSummaryText, result, showFullEmails]);
+
+  const exportJson = useCallback(() => {
+    if (!result) return;
+    const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `logshield-email-breach-report-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }, [result]);
+
+  const exportTxt = useCallback(() => {
+    if (!result) return;
+    const blob = new Blob([buildSummaryText(result, showFullEmails)], { type: "text/plain;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `logshield-email-breach-report-${new Date().toISOString().slice(0, 10)}.txt`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }, [buildSummaryText, result, showFullEmails]);
+
+  return (
+    <div className="space-y-5">
+      <InfoHint title="Privacy-first breach check">
+        This tool never asks for passwords. Check only emails you own or are authorized to review. Uploaded files are parsed locally to extract emails and are not stored.
+      </InfoHint>
+
+      <div className="rounded-2xl border border-cyan-400/15 bg-cyber-elevated/40 p-4 space-y-3">
+        <div className="flex flex-wrap gap-2">
+          {[
+            { key: "single", label: "Single Email" },
+            { key: "paste", label: "Paste Emails" },
+            { key: "upload", label: "Upload File" },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => {
+                setMode(tab.key as BreachInputMode);
+                setError(null);
+                setNotice(null);
+              }}
+              className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${mode === tab.key ? "border-cyan-300/30 bg-cyan-400/10 text-cyan-200" : "border-slate-700 bg-slate-900/50 text-slate-400 hover:text-slate-200"}`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {mode === "single" ? (
+          <input
+            type="email"
+            value={singleEmail}
+            onChange={(event) => handleSingleInputChange(event.target.value)}
+            placeholder="name@example.com"
+            className="w-full rounded-xl border border-cyan-400/15 bg-cyber-surface px-3 py-2 text-sm text-cyber-text placeholder:text-cyber-muted focus:border-cyan-300/50 focus:outline-none"
+          />
+        ) : null}
+
+        {mode === "paste" ? (
+          <div className="space-y-2">
+            <ToolInput
+              value={pasteText}
+              onChange={setPasteText}
+              rows={6}
+              placeholder="Paste emails or mixed text. We'll extract valid emails safely."
+            />
+            <div className="flex flex-wrap gap-2">
+              <ActionBtn label="Extract Emails" onClick={handleExtractPaste} disabled={!pasteText.trim()} variant="secondary" />
+            </div>
+          </div>
+        ) : null}
+
+        {mode === "upload" ? (
+          <label className="block rounded-xl border border-dashed border-cyan-400/20 bg-slate-900/40 p-4 text-sm text-slate-300">
+            <span className="mb-2 flex items-center gap-2 font-semibold text-cyan-200">
+              <Upload className="h-4 w-4" />
+              Upload .txt / .csv / .json / .log / .md (max 1 MB)
+            </span>
+            <input
+              type="file"
+              accept=".txt,.csv,.json,.log,.md,text/plain,application/json,text/csv,text/markdown"
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                const allowed = requireAuth(() => void handleFileUpload(file));
+                if (!allowed) event.currentTarget.value = "";
+              }}
+              className="block w-full text-xs text-slate-400 file:mr-3 file:rounded-lg file:border-0 file:bg-cyan-400 file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-slate-950 hover:file:bg-cyan-300"
+            />
+          </label>
+        ) : null}
+      </div>
+
+      <div className="rounded-2xl border border-cyan-400/12 bg-slate-950/60 p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">Extracted Emails</p>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 text-xs text-slate-300">
+              <input
+                type="checkbox"
+                checked={showFullEmails}
+                onChange={(event) => setShowFullEmails(event.target.checked)}
+                className="h-4 w-4 rounded border-cyan-400/30 bg-cyber-surface text-cyan-400 focus:ring-cyan-400/40"
+              />
+              Show full emails
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                setEmails([]);
+                setExtractStats({ totalDetected: 0, invalidIgnored: 0, duplicatesRemoved: 0, limited: false });
+                setNotice(null);
+              }}
+              className="rounded-lg border border-slate-700 px-2.5 py-1 text-xs text-slate-400 transition hover:text-slate-200"
+            >
+              Clear list
+            </button>
+          </div>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="rounded-lg border border-slate-800 bg-black/30 px-3 py-2 text-xs text-slate-300">Total detected: {extractStats.totalDetected}</div>
+          <div className="rounded-lg border border-slate-800 bg-black/30 px-3 py-2 text-xs text-slate-300">Duplicates removed: {extractStats.duplicatesRemoved}</div>
+          <div className="rounded-lg border border-slate-800 bg-black/30 px-3 py-2 text-xs text-slate-300">Invalid ignored: {extractStats.invalidIgnored}</div>
+          <div className="rounded-lg border border-slate-800 bg-black/30 px-3 py-2 text-xs text-slate-300">Ready to check: {emails.length}</div>
+        </div>
+
+        {emails.length > 0 ? (
+          <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-800 bg-black/30 px-3 py-2">
+            <div className="flex flex-wrap gap-2">
+              {emails.slice(0, 24).map((email) => (
+                <span key={email} className="rounded border border-cyan-400/20 bg-cyan-500/5 px-2 py-1 text-[11px] font-mono text-cyan-200">
+                  {showFullEmails ? email : maskEmail(email)}
+                </span>
+              ))}
+              {emails.length > 24 ? (
+                <span className="rounded border border-slate-700 px-2 py-1 text-[11px] text-slate-400">+{emails.length - 24} more</span>
+              ) : null}
+            </div>
+          </div>
+        ) : (
+          <ToolEmptyState text="No extracted emails yet." />
+        )}
+      </div>
+
+      <label className="flex items-start gap-2 text-sm text-cyber-text cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={authConfirmed}
+          onChange={(event) => setAuthConfirmed(event.target.checked)}
+          className="mt-0.5 h-4 w-4 rounded border-cyan-400/30 bg-cyber-surface text-cyan-400 focus:ring-cyan-400/40"
+        />
+        I confirm that I own these email addresses or have permission to check them for breach exposure.
+      </label>
+
+      <div className="flex flex-wrap gap-2">
+        <ActionBtn
+          label={loading ? "Checking..." : "Check Email Exposure"}
+          onClick={runCheck}
+          disabled={!canCheck}
+        />
+        <ClearBtn onClick={clearAll} />
+      </div>
+
+      {notice ? (
+        <div className="rounded-xl border border-cyan-400/20 bg-cyan-500/5 px-3 py-2 text-xs text-cyan-200">{notice}</div>
+      ) : null}
+      {error ? <ToolError message={error} /> : null}
+
+      {result ? (
+        <div className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="rounded-xl border border-slate-800 bg-slate-900/50 p-3 text-center">
+              <p className="text-[10px] uppercase text-slate-500">Total Checked</p>
+              <p className="text-xl font-black text-white">{result.summary.total_checked}</p>
+            </div>
+            <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-center">
+              <p className="text-[10px] uppercase text-red-300/80">Exposed</p>
+              <p className="text-xl font-black text-red-300">{result.summary.exposed_count}</p>
+            </div>
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-center">
+              <p className="text-[10px] uppercase text-emerald-300/80">Not Found</p>
+              <p className="text-xl font-black text-emerald-300">{result.summary.not_found_count}</p>
+            </div>
+            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-center">
+              <p className="text-[10px] uppercase text-amber-300/80">Unknown</p>
+              <p className="text-xl font-black text-amber-300">{result.summary.unknown_count}</p>
+            </div>
+            <div className={`rounded-xl border p-3 text-center ${breachRiskTone(result.summary.highest_risk)}`}>
+              <p className="text-[10px] uppercase">Highest Risk</p>
+              <p className="text-xl font-black uppercase">{result.summary.highest_risk}</p>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/30 p-4 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">Top Priority Actions</p>
+            <ul className="space-y-1 text-sm text-slate-300">
+              {result.summary.top_priorities.map((priority) => (
+                <li key={priority} className="flex gap-2">
+                  <span className="text-cyan-300">•</span>
+                  <span>{priority}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="space-y-3">
+            {result.results.map((item) => (
+              <div key={item.email_normalized || item.email} className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-mono text-sm text-cyan-200">{showFullEmails && item.email_normalized ? item.email_normalized : item.email}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <span className={`rounded border px-2 py-0.5 text-[11px] uppercase font-semibold ${breachStatusTone(item.status)}`}>
+                      {item.status.replace("_", " ")}
+                    </span>
+                    <span className={`rounded border px-2 py-0.5 text-[11px] uppercase font-semibold ${breachRiskTone(item.risk_level)}`}>
+                      {item.risk_level}
+                    </span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400">Breach count: {item.breach_count}</p>
+                {item.breaches.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {item.breaches.slice(0, 6).map((breach, idx) => (
+                      <span key={`${item.email}-${idx}`} className="rounded border border-slate-700 bg-black/30 px-2 py-1 text-[11px] text-slate-300">
+                        {breach.name || breach.domain || "Unknown breach"}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <div className="space-y-1 text-xs text-slate-300">
+                  {item.recommendations.slice(0, 3).map((rec) => (
+                    <p key={rec}>• {rec}</p>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDetailsItem(item)}
+                  className="rounded-lg border border-cyan-400/15 bg-cyber-elevated px-3 py-1.5 text-xs text-cyber-muted transition hover:border-cyan-300/40 hover:text-cyan-200"
+                >
+                  View Details
+                </button>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-800 bg-slate-900/30 p-4">
+            <p className="text-xs text-slate-400">Export and share a safe summary.</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={copySummary} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:text-white">
+                <Copy className="mr-1 inline h-3.5 w-3.5" />
+                Copy Summary
+              </button>
+              <button type="button" onClick={exportTxt} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:text-white">
+                Export TXT
+              </button>
+              <button type="button" onClick={exportJson} className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 transition hover:text-white">
+                Export JSON
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {detailsItem ? (
+        <AppModal
+          isOpen={Boolean(detailsItem)}
+          onClose={() => setDetailsItem(null)}
+          title="Email Breach Details"
+          size="xl"
+          closeOnOverlayClick
+          panelClassName="soc-panel p-4 sm:p-5"
+        >
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">Email Breach Details</p>
+                <p className="mt-1 font-mono text-sm text-cyan-200">
+                  {showFullEmails && detailsItem.email_normalized ? detailsItem.email_normalized : detailsItem.email}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDetailsItem(null)}
+                className="rounded-lg border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:border-cyan-300/40 hover:text-cyan-200"
+              >
+                <X className="mr-1 inline h-3.5 w-3.5" />
+                Close
+              </button>
+            </div>
+
+            <div className="grid gap-2 sm:grid-cols-3">
+              <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-2 text-xs text-slate-300">Status: {detailsItem.status}</div>
+              <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-2 text-xs text-slate-300">Risk: {detailsItem.risk_level}</div>
+              <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-2 text-xs text-slate-300">Breaches: {detailsItem.breach_count}</div>
+            </div>
+            <div className="space-y-2">
+              {detailsItem.breaches.length === 0 ? (
+                <p className="text-xs text-slate-400">No detailed breach entries were returned by the provider.</p>
+              ) : (
+                detailsItem.breaches.map((breach, idx) => (
+                  <div key={`detail-${idx}`} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs text-slate-300 space-y-1">
+                    <p className="font-semibold text-white">{breach.name || breach.domain || "Unknown breach source"}</p>
+                    {breach.domain ? <p>Domain: {breach.domain}</p> : null}
+                    {breach.breach_date ? <p>Breach date: {breach.breach_date}</p> : null}
+                    {breach.data_classes.length > 0 ? <p>Data classes: {breach.data_classes.join(", ")}</p> : null}
+                    {breach.description ? <p>{breach.description}</p> : null}
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="flex justify-end border-t border-slate-800 pt-3">
+              <button
+                type="button"
+                onClick={() => setDetailsItem(null)}
+                className="rounded-lg border border-slate-700 bg-slate-900/70 px-4 py-2 text-xs font-semibold text-slate-300 transition hover:border-cyan-300/40 hover:text-cyan-200"
+              >
+                Close Details
+              </button>
+            </div>
+          </div>
+        </AppModal>
+      ) : null}
+    </div>
+  );
+}
+
 /* ───────────── Tool Registry ───────────── */
 
 interface ToolDef {
@@ -1698,78 +3872,279 @@ interface ToolDef {
   label: string;
   icon: any;
   description: string;
+  category: "Decode/Transform" | "IOC & Triage" | "Web & URL" | "Endpoint & Windows" | "Headers & Identity" | "Website Assessment";
+  safety?: string;
+  featured?: boolean;
   component: () => JSX.Element;
 }
 
 const tools: ToolDef[] = [
-  { id: "base64", label: "Base64", icon: Binary, description: "Encode and decode Base64 strings.", component: Base64Tool },
-  { id: "url", label: "URL", icon: Link2, description: "Encode and decode URL strings.", component: UrlTool },
-  { id: "hash", label: "Hash", icon: Fingerprint, description: "Generate SHA-256, SHA-512, SHA-1 hashes.", component: HashTool },
-  { id: "jwt", label: "JWT", icon: KeyRound, description: "Decode JWT header and payload (no verification).", component: JwtTool },
-  { id: "ioc", label: "IOC Extractor", icon: ScanSearch, description: "Extract IPs, URLs, domains, emails, hashes from text.", component: IocExtractorTool },
-  { id: "defang", label: "Defang / Refang", icon: ShieldOff, description: "Defang or refang URLs, domains, and IPs.", component: DefangTool },
-  { id: "timestamp", label: "Timestamp", icon: Clock, description: "Convert Unix timestamps to dates and vice versa.", component: TimestampTool },
-  { id: "ua", label: "User-Agent", icon: MonitorSmartphone, description: "Inspect and parse User-Agent strings.", component: UaInspectorTool },
-  { id: "email-headers", label: "Email Headers", icon: MailSearch, description: "Inspect SPF, DKIM, DMARC, routing hops, and phishing header clues.", component: EmailHeaderTool },
-  { id: "http-headers", label: "HTTP Headers", icon: ShieldCheck, description: "Review browser security headers and cookie flags.", component: HttpHeadersTool },
-  { id: "ports", label: "Port Lookup", icon: Network, description: "Identify common services, exposure risk, and analyst notes for ports.", component: PortLookupTool },
-  { id: "windows-events", label: "Windows Events", icon: ListTree, description: "Look up high-value Windows Event IDs and investigation context.", component: WindowsEventTool },
-  { id: "log-triage", label: "Log Triage", icon: FileSearch, description: "Classify suspicious log lines and extract quick investigation leads.", component: LogTriageTool },
-  { id: "file-analyzer", label: "File Analyzer", icon: FileWarning, description: "Safely inspect file hashes, signatures, strings, entropy, and IOCs without execution.", component: FileAnalyzerTool },
+  { id: "base64", label: "Base64", icon: Binary, description: "Encode and decode Base64 strings.", category: "Decode/Transform", component: Base64Tool },
+  { id: "url", label: "URL", icon: Link2, description: "Encode and decode URL strings.", category: "Web & URL", component: UrlTool },
+  { id: "hash", label: "Hash", icon: Fingerprint, description: "Generate SHA-256, SHA-512, SHA-1 hashes.", category: "IOC & Triage", component: HashTool },
+  { id: "jwt", label: "JWT", icon: KeyRound, description: "Decode JWT header and payload (no verification).", category: "Headers & Identity", component: JwtTool },
+  { id: "ioc", label: "IOC Extractor", icon: ScanSearch, description: "Extract IPs, URLs, domains, emails, hashes from text.", category: "IOC & Triage", component: IocExtractorTool },
+  { id: "defang", label: "Defang / Refang", icon: ShieldOff, description: "Defang or refang URLs, domains, and IPs.", category: "Web & URL", component: DefangTool },
+  { id: "timestamp", label: "Timestamp", icon: Clock, description: "Convert Unix timestamps to dates and vice versa.", category: "Decode/Transform", component: TimestampTool },
+  { id: "ua", label: "User-Agent", icon: MonitorSmartphone, description: "Inspect and parse User-Agent strings.", category: "Web & URL", component: UaInspectorTool },
+  { id: "email-headers", label: "Email Headers", icon: MailSearch, description: "Inspect SPF, DKIM, DMARC, routing hops, and phishing header clues.", category: "Headers & Identity", component: EmailHeaderTool },
+  { id: "http-headers", label: "HTTP Headers", icon: ShieldCheck, description: "Review browser security headers and cookie flags.", category: "Headers & Identity", component: HttpHeadersTool },
+  { id: "ports", label: "Port Lookup", icon: Network, description: "Identify common services, exposure risk, and analyst notes for ports.", category: "Web & URL", component: PortLookupTool },
+  { id: "windows-events", label: "Windows Events", icon: ListTree, description: "Look up high-value Windows Event IDs and investigation context.", category: "Endpoint & Windows", component: WindowsEventTool },
+  { id: "log-triage", label: "Log Triage", icon: FileSearch, description: "Classify suspicious log lines and extract quick investigation leads.", category: "IOC & Triage", component: LogTriageTool },
+  { id: "file-analyzer", label: "File Analyzer", icon: FileWarning, description: "Safely inspect file hashes, signatures, strings, entropy, and IOCs without execution.", category: "IOC & Triage", safety: "No file execution", component: FileAnalyzerTool },
+  { id: "domain-spoofing-defense", label: "Domain Spoofing Defense", icon: Globe, description: "Generate limited lookalike domain candidates and passively check DNS signals to detect possible brand impersonation risks.", category: "Website Assessment", safety: "Passive DNS only. Defensive monitoring.", featured: true, component: DomainSpoofingDefenseTool },
+  { id: "email-breach-checker", label: "Email Breach Checker", icon: MailSearch, description: "Check whether authorized email addresses appear in known breach records and receive clear account protection recommendations.", category: "Website Assessment", safety: "No password checks. Privacy-first lookup.", featured: true, component: EmailBreachCheckerTool },
+  { id: "website-analyzer", label: "Website Security Analyzer", icon: Globe, description: "Scan your website safely and receive a user-friendly security report.", category: "Website Assessment", safety: "Non-invasive GET/HEAD only", featured: true, component: WebsiteAnalyzerTool },
 ];
+
+const toolCategories = ["All", "Decode/Transform", "IOC & Triage", "Web & URL", "Endpoint & Windows", "Headers & Identity", "Website Assessment"] as const;
+
+function normalizeToolQueryValue(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "website-security-analyzer") return "website-analyzer";
+  if (normalized === "website-analyzer") return "website-analyzer";
+  if (normalized === "email-breach-checker") return "email-breach-checker";
+  if (normalized === "domain-spoofing-defense") return "domain-spoofing-defense";
+  return tools.find((item) => item.id === normalized)?.id ?? null;
+}
 
 /* ───────────── Main Page ───────────── */
 
 export function SocToolsPage() {
-  const [active, setActive] = useState(tools[0].id);
+  const { requireAuth, loginRequiredModal, isAuthenticated } = useAuthGate();
+  const [searchParams] = useSearchParams();
+  const isMobile = useMediaQuery("(max-width: 768px)");
+  const initialTool = normalizeToolQueryValue(searchParams.get("tool")) ?? tools[0].id;
+  const [active, setActive] = useState(initialTool);
+  const [mobileToolOpen, setMobileToolOpen] = useState(false);
+  const [toolFocusHighlight, setToolFocusHighlight] = useState(false);
+  const activeToolRef = useRef<HTMLDivElement | null>(null);
+  const mobileToolRef = useRef<HTMLDivElement | null>(null);
+  const activeInputRef = useRef<HTMLTextAreaElement | HTMLInputElement | null>(null);
+  const shouldScrollToToolRef = useRef(false);
+  const focusHighlightTimerRef = useRef<number | null>(null);
+  const [category, setCategory] = useState<(typeof toolCategories)[number]>("All");
+  const [query, setQuery] = useState("");
+  const [demoOpen, setDemoOpen] = useState(false);
+  const [demoToolId, setDemoToolId] = useState<string | null>(null);
   const tool = tools.find(t => t.id === active)!;
   const ToolComponent = tool.component;
+  const filteredTools = tools.filter(item => {
+    const matchesCategory = category === "All" || item.category === category;
+    const q = query.trim().toLowerCase();
+    const matchesQuery = !q || [item.label, item.description, item.category].join(" ").toLowerCase().includes(q);
+    return matchesCategory && matchesQuery;
+  }).sort((a, b) => Number(Boolean(b.featured)) - Number(Boolean(a.featured)));
+
+  useEffect(() => {
+    const requestedTool = normalizeToolQueryValue(searchParams.get("tool"));
+    if (!requestedTool || requestedTool === active) return;
+    setActive(requestedTool);
+  }, [active, searchParams]);
+
+  const focusToolInput = useCallback((container: HTMLDivElement | null) => {
+    const input = container?.querySelector("textarea, input:not([type='hidden'])") as
+      | HTMLTextAreaElement
+      | HTMLInputElement
+      | null;
+    if (!input) return;
+    activeInputRef.current = input;
+    activeInputRef.current.focus();
+  }, []);
+
+  const handleSelectTool = useCallback((toolId: string) => {
+    shouldScrollToToolRef.current = true;
+    setActive(toolId);
+    if (isMobile) {
+      setMobileToolOpen(true);
+    }
+  }, [isMobile]);
+
+  const handleOpenDemo = useCallback((toolId: string) => {
+    setDemoToolId(toolId);
+    setDemoOpen(true);
+  }, []);
+
+  const activeDemo = demoToolId ? socToolDemos[demoToolId] ?? null : null;
+
+  useEffect(() => {
+    if (!shouldScrollToToolRef.current) return;
+    if (!active) return;
+
+    const timer = window.setTimeout(() => {
+      if (isMobile) {
+        window.setTimeout(() => {
+          focusToolInput(mobileToolRef.current);
+        }, 260);
+      } else {
+        activeToolRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+        setToolFocusHighlight(true);
+        if (focusHighlightTimerRef.current) {
+          window.clearTimeout(focusHighlightTimerRef.current);
+        }
+        focusHighlightTimerRef.current = window.setTimeout(() => setToolFocusHighlight(false), 620);
+        window.setTimeout(() => {
+          focusToolInput(activeToolRef.current);
+        }, 350);
+      }
+
+      shouldScrollToToolRef.current = false;
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [active, focusToolInput, isMobile, mobileToolOpen]);
+
+  useEffect(() => () => {
+    if (focusHighlightTimerRef.current) {
+      window.clearTimeout(focusHighlightTimerRef.current);
+    }
+  }, []);
 
   return (
+    <ToolAuthGateContext.Provider value={requireAuth}>
     <div className="space-y-6">
       <PageHeader
-        eyebrow="SOC Tools"
-        title="LogShield Cyber Toolkit"
-        description="Decode, transform, and inspect security artifacts safely during investigations."
-        icon={Wrench}
+        eyebrow="SOC ANALYST TOOLKIT"
+        title="SOC Tools"
+        description="Decode, inspect, extract, and triage security artifacts safely."
       />
 
       <InfoHint title="Defensive-only local processing">
         Tools process input locally in your browser and are intended for defensive analysis only. Use IOC Extractor for IPs/domains/URLs/hashes, JWT Decoder for header and payload review, Defang for safe sharing, and Timestamp Converter for log correlation.
       </InfoHint>
+      {!isAuthenticated ? (
+        <InfoHint title="Public read-only mode">
+          You can browse the SOC toolkit and read each tool description. Running analyzers, decoders, extractors, and file triage requires a LogShield account.
+        </InfoHint>
+      ) : null}
 
-      {/* Tool selector */}
-      <div className="flex flex-wrap gap-2">
-        {tools.map(t => {
+      <div className="grid gap-4 md:grid-cols-3">
+        <StatCard label="Total Tools" value={tools.length} />
+        <StatCard label="Active Category" value={tool.category} />
+        <StatCard label="Current Tool" value={tool.label} />
+      </div>
+
+      <div className="soc-panel p-4">
+        <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-500" />
+            <input
+              value={query}
+              onChange={event => setQuery(event.target.value)}
+              placeholder="Search tools by name, category, or purpose..."
+              className="soc-input w-full pl-10"
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {toolCategories.map(item => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setCategory(item)}
+                className={`row-action ${category === item ? "primary" : ""}`.trim()}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {filteredTools.map(t => {
           const Icon = t.icon;
+          const tone = t.category === "IOC & Triage" ? "warning" : t.category === "Endpoint & Windows" ? "neutral" : t.category === "Headers & Identity" ? "violet" : "info";
           return (
-            <button
+            <div
               key={t.id}
-              onClick={() => setActive(t.id)}
-              className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
+              className={`rounded-xl border p-4 text-left transition ${
                 active === t.id
-                  ? "border border-cyan-200/30 bg-cyan-300 text-slate-950 shadow-lg shadow-cyan-950/30"
-                  : "border border-slate-700 bg-slate-800 text-slate-300 hover:border-cyan-200/20 hover:text-white"
+                  ? "border-cyan-200/30 bg-cyan-300/10"
+                  : "border-slate-700 bg-slate-800/60 hover:border-cyan-200/20 hover:text-white"
               }`}
             >
-              <Icon className="h-4 w-4" />
-              {t.label}
-            </button>
+              <div className="mb-2 flex items-center justify-between">
+                <Icon className="h-5 w-5 text-cyan-300" />
+                <div className="flex items-center gap-1.5">
+                  {t.featured ? <Chip tone="safe">Featured</Chip> : null}
+                  <Chip tone={tone}>{t.category}</Chip>
+                </div>
+              </div>
+              <p className="text-sm font-bold text-cyber-text">{t.label}</p>
+              <p className="mt-1 text-xs text-cyber-muted">{t.description}</p>
+              {t.safety ? <p className="mt-2 text-[11px] text-emerald-300">{t.safety}</p> : null}
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => handleOpenDemo(t.id)}
+                  className="rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:border-cyan-300/40 hover:text-cyan-200"
+                >
+                  How it works
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectTool(t.id)}
+                  className="row-action primary justify-center"
+                >
+                  Open Tool
+                </button>
+              </div>
+            </div>
           );
         })}
       </div>
 
       {/* Active tool */}
-      <div className="rounded-3xl border border-slate-800 bg-slate-900/70 p-5 sm:p-6">
-        <div className="mb-4 flex items-center gap-3">
+      <div ref={activeToolRef} className={`active-tool-panel rounded-3xl border border-slate-800 bg-slate-900/70 p-5 sm:p-6 ${toolFocusHighlight ? "tool-focus-highlight" : ""} ${isMobile ? "hidden" : "block"}`}>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4">
+          <div className="flex items-center gap-3">
           {(() => { const Icon = tool.icon; return <Icon className="h-5 w-5 text-cyan-300" />; })()}
           <div>
             <h2 className="text-lg font-bold text-white">{tool.label}</h2>
             <p className="text-sm text-slate-400">{tool.description}</p>
           </div>
+          </div>
+          <Chip tone={tool.category === "IOC & Triage" ? "warning" : tool.category === "Headers & Identity" ? "violet" : "info"}>{tool.category}</Chip>
         </div>
         <ToolComponent />
       </div>
+      {isMobile ? (
+        <AppModal
+          isOpen={mobileToolOpen}
+          onClose={() => setMobileToolOpen(false)}
+          size="xl"
+          closeOnOverlayClick
+          panelClassName="soc-panel p-4"
+        >
+          <div ref={mobileToolRef} className="mb-3 flex items-center justify-between border-b border-[var(--border)] pb-3">
+            <div>
+              <h2 className="text-base font-bold text-[var(--text-primary)]">{tool.label}</h2>
+              <p className="text-xs text-[var(--text-muted)]">{tool.description}</p>
+            </div>
+            <Chip tone={tool.category === "IOC & Triage" ? "warning" : tool.category === "Headers & Identity" ? "violet" : "info"}>
+              {tool.category}
+            </Chip>
+          </div>
+          <ToolComponent />
+        </AppModal>
+      ) : null}
+
+      <ToolDemoModal
+        isOpen={demoOpen}
+        demo={activeDemo}
+        onClose={() => setDemoOpen(false)}
+        onOpenTool={() => {
+          if (demoToolId) {
+            setDemoOpen(false);
+            handleSelectTool(demoToolId);
+          }
+        }}
+      />
 
       {/* Safety note */}
       <div className="flex items-start gap-3 rounded-2xl border border-slate-700 bg-slate-900/40 px-4 py-3 text-xs text-slate-400">
@@ -1777,5 +4152,7 @@ export function SocToolsPage() {
         <span>All processing happens locally in your browser. No data is sent to the server or any external service. Input is not stored or logged.</span>
       </div>
     </div>
+    {loginRequiredModal}
+    </ToolAuthGateContext.Provider>
   );
 }

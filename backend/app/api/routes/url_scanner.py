@@ -65,7 +65,11 @@ def _parse_raw_summary(raw_summary: str | None) -> dict:
 
 def _build_score_breakdown(result) -> URLScanScoreBreakdown:
     raw_summary = _parse_raw_summary(result.raw_summary)
-    provider_error = raw_summary.get("error") if isinstance(raw_summary.get("error"), str) else None
+    provider_error = raw_summary.get("provider_error") or raw_summary.get("error")
+    provider_error = provider_error if isinstance(provider_error, str) else None
+    mode = str(raw_summary.get("mode") or ("local_fallback" if result.provider == "local_fallback" else "external_provider"))
+    is_local_fallback = mode == "local_fallback" or result.provider == "local_fallback"
+    status = "unknown" if is_local_fallback and result.status == "safe" else result.status
     engine_results = []
     for item in raw_summary.get("engine_results", []):
         if isinstance(item, dict):
@@ -85,19 +89,31 @@ def _build_score_breakdown(result) -> URLScanScoreBreakdown:
         + result.undetected_count
     )
 
-    if result.status == "malicious":
+    if is_local_fallback:
+        formula = "static URL indicator scoring only"
+        if status == "suspicious":
+            explanation = (
+                "LogShield found suspicious static URL indicators and raised the "
+                "score without visiting or executing the URL."
+            )
+        else:
+            explanation = (
+                "External reputation data was unavailable, so LogShield used static "
+                "URL indicators only and kept the verdict unknown instead of calling it safe."
+            )
+    elif status == "malicious":
         formula = "min(100, malicious engines x 10)"
         explanation = (
             f"{result.malicious_count} engine(s) marked the URL as malicious, "
             "so LogShield raised the risk score based on malicious detections."
         )
-    elif result.status == "suspicious":
+    elif status == "suspicious":
         formula = "min(80, suspicious engines x 5 + 20)"
         explanation = (
             f"{result.suspicious_count} engine(s) marked the URL as suspicious, "
             "so LogShield added a suspicious baseline plus engine weight."
         )
-    elif result.status == "safe":
+    elif status == "safe":
         formula = "0 when providers report harmless detections and no malicious/suspicious hits"
         explanation = (
             f"{result.harmless_count} engine(s) reported harmless and no engine "
@@ -120,22 +136,37 @@ def _build_score_breakdown(result) -> URLScanScoreBreakdown:
 
 
 def _build_scan_response(result, scanned_by: str) -> URLScanResponse:
+    raw_summary = _parse_raw_summary(result.raw_summary)
+    mode = str(raw_summary.get("mode") or ("local_fallback" if result.provider == "local_fallback" else "external_provider"))
+    is_local_fallback = mode == "local_fallback" or result.provider == "local_fallback"
+    status = "unknown" if is_local_fallback and result.status == "safe" else result.status
+    summary = {
+        "malicious": result.malicious_count,
+        "suspicious": result.suspicious_count,
+        "harmless": result.harmless_count,
+        "undetected": result.undetected_count,
+    }
+    if is_local_fallback and result.status == "safe":
+        summary["harmless"] = 0
+        summary["undetected"] = max(1, summary["undetected"])
+
+    recommendation = raw_summary.get("recommendation")
+    if not isinstance(recommendation, str) or not recommendation:
+        recommendation = _get_recommendation(status, mode)
+
     return URLScanResponse(
         id=result.id,
         url=result.submitted_url,
         normalized_url=result.normalized_url,
-        status=result.status,
+        status=status,
         score=result.score,
         provider=result.provider,
-        summary={
-            "malicious": result.malicious_count,
-            "suspicious": result.suspicious_count,
-            "harmless": result.harmless_count,
-            "undetected": result.undetected_count,
-        },
+        summary=summary,
         categories=_parse_categories(result.categories),
         last_analysis_date=result.last_analysis_date,
-        recommendation=_get_recommendation(result.status),
+        recommendation=recommendation,
+        summary_text=raw_summary.get("summary_text") if isinstance(raw_summary.get("summary_text"), str) else None,
+        confidence_note=raw_summary.get("confidence_note") if isinstance(raw_summary.get("confidence_note"), str) else None,
         score_breakdown=_build_score_breakdown(result),
         raw_reference={
             "provider_id": result.provider_reference or "",
@@ -143,6 +174,12 @@ def _build_scan_response(result, scanned_by: str) -> URLScanResponse:
         },
         scanned_at=result.created_at,
         scanned_by=scanned_by,
+        mode=mode,
+        severity=raw_summary.get("severity") if isinstance(raw_summary.get("severity"), str) else None,
+        reasons=raw_summary.get("reasons") if isinstance(raw_summary.get("reasons"), list) else [],
+        parsed_url=raw_summary.get("parsed_url") if isinstance(raw_summary.get("parsed_url"), dict) else None,
+        recommended_actions=raw_summary.get("recommended_actions") if isinstance(raw_summary.get("recommended_actions"), list) else [],
+        safety_model=raw_summary.get("safety_model") if isinstance(raw_summary.get("safety_model"), dict) else None,
     )
 
 
@@ -153,7 +190,7 @@ async def scan_url(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> URLScanResponse:
     """
-    Scan a URL for reputation using external provider.
+    Scan a URL for reputation using external provider or local static fallback.
     
     This endpoint validates the URL, checks it against external reputation services,
     and returns a safety assessment. URLs are only sent to reputation providers,
@@ -192,7 +229,7 @@ async def scan_url(
         logger.exception("URL scan failed for user %s.", current_user.id)
         raise HTTPException(
             status_code=500,
-            detail="Failed to scan URL with the configured reputation provider."
+            detail="Scanner service is unavailable. Please check that the backend is running.",
         )
 
 
@@ -342,8 +379,13 @@ async def _log_scan_event(
     db.commit()
 
 
-def _get_recommendation(status: str) -> str:
+def _get_recommendation(status: str, mode: str | None = None) -> str:
     """Get safety recommendation based on status."""
+    if mode == "local_fallback":
+        if status == "suspicious":
+            return "Review the static indicators before opening or sharing this URL."
+        return "Use normal caution. Do not submit credentials unless you trust the site and verify the domain."
+
     recommendations = {
         "safe": "No malicious reputation was found. Continue with normal caution.",
         "suspicious": "Some engines flagged this URL as suspicious. Review before opening.",
@@ -356,6 +398,9 @@ def _get_recommendation(status: str) -> str:
 
 def _get_permalink(provider: str, provider_reference: str | None, url: str) -> str:
     """Get permalink to provider's detailed analysis."""
+    if provider == "local_fallback":
+        return ""
+
     if provider == "virustotal" and provider_reference:
         return f"https://www.virustotal.com/gui/url/{provider_reference}"
     

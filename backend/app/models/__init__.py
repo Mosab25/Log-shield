@@ -13,6 +13,7 @@ from app.models.incident_note import IncidentNote
 from app.models.incident_timeline import IncidentTimeline
 from app.models.ip_block import IPBlock
 from app.models.normalized_log import NormalizedLog
+from app.models.quiz import Quiz, QuizAnswer, QuizAttempt, QuizQuestion
 from app.models.raw_log import RawLog
 from app.models.refresh_token import RefreshToken
 from app.models.report import Report
@@ -42,6 +43,10 @@ __all__ = [
     "IncidentTimeline",
     "IPBlock",
     "NormalizedLog",
+    "Quiz",
+    "QuizQuestion",
+    "QuizAttempt",
+    "QuizAnswer",
     "RawLog",
     "RefreshToken",
     "Report",

@@ -99,13 +99,11 @@ class VirusTotalProvider(URLReputationProvider):
         return result_response.json()
     
     def _get_url_id(self, url: str) -> str:
-        """Get VirusTotal URL ID (base64 encoded URL)."""
+        """Get VirusTotal URL ID (URL-safe base64 without padding)."""
         import base64
-        import hashlib
-        
-        # VirusTotal uses SHA256 of the URL
-        url_hash = hashlib.sha256(url.encode()).hexdigest()
-        return url_hash
+
+        encoded = base64.urlsafe_b64encode(url.encode()).decode().strip("=")
+        return encoded
     
     def normalize_result(self, raw_result: dict[str, Any]) -> dict[str, Any]:
         """Normalize VirusTotal result to standard format."""

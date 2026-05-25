@@ -51,7 +51,6 @@ class Alert(Base):
 
     __table_args__ = (
         Index("ix_alerts_status_risk", "status", "risk_score"),
-        Index("ix_alerts_created_at", "created_at"),
         Index("ix_alerts_severity_status", "severity", "status"),
         Index("ix_alerts_risk_created", "risk_score", "created_at"),
     )

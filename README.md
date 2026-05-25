@@ -1,6 +1,6 @@
-# LogShield — Smart Log Analysis for Real-Time Risk Detection
+# LogShield: Intelligent SOC Platform for Explainable Threat Detection and Incident Investigation
 
-LogShield is a defensive SOC Tier 1 web platform that collects, normalizes, and analyzes security logs to detect suspicious activities, calculate explainable risk scores, generate alerts, and support incident triage through a professional dashboard.
+LogShield is a defensive SOC platform that collects, normalizes, and analyzes security logs to detect suspicious activities, calculate explainable risk scores, generate alerts, and support incident triage through a professional dashboard.
 
 ## Threat detection pipeline
 
@@ -51,6 +51,19 @@ python -c "from app.db.session import SessionLocal; from app.services.detection_
 - Demo seed data
 - Docker Compose deployment
 
+## Key capabilities
+
+- Explainable Risk Scoring
+- MITRE ATT&CK Mapping
+- IOC Extraction and Management
+- Detection Rules Engine
+- Incident Investigation Workflow
+- SOC Analyst Toolkit (14 tools)
+- Security Awareness Training
+- Admin 2FA
+- Audit Logging
+- URL Reputation Scanner
+
 ## Tech Stack
 
 - Frontend: React + Vite + TypeScript + Tailwind CSS + Recharts
@@ -58,6 +71,28 @@ python -c "from app.db.session import SessionLocal; from app.services.detection_
 - Database: PostgreSQL
 - Auth: JWT access token + refresh token
 - Deployment: Docker Compose, optional Nginx
+
+## Local Development Ports
+
+- Frontend: `http://127.0.0.1:5173`
+- Backend: `http://127.0.0.1:8000`
+- API Docs: `http://127.0.0.1:8000/docs`
+- PostgreSQL: `5432`
+- Redis: `6379` when the optional Redis profile is enabled
+
+Backend:
+
+```bash
+cd backend
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm run dev
+```
 
 ## Demo Accounts
 
@@ -100,13 +135,13 @@ pip install -r requirements.txt
 cp .env.example .env
 alembic upgrade head
 python -m app.seed_demo
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Backend docs:
 
 ```text
-http://localhost:8000/docs
+http://127.0.0.1:8000/docs
 ```
 
 ## Local Frontend Setup
@@ -121,7 +156,7 @@ npm run dev
 Open:
 
 ```text
-http://localhost:5173
+http://127.0.0.1:5173
 ```
 
 ## Docker Setup
@@ -138,7 +173,7 @@ docker compose exec backend python -m app.seed_demo
 Open:
 
 ```text
-http://localhost:5173
+http://127.0.0.1:5173
 ```
 
 ## Optional Nginx Proxy
@@ -150,15 +185,18 @@ docker compose --profile proxy up -d nginx
 Open:
 
 ```text
-http://localhost:8080
+http://127.0.0.1:8080
 ```
+
+This proxy is optional. The standard local frontend URL remains
+`http://127.0.0.1:5173`.
 
 ## Render Deployment Notes
 
 Frontend static site:
 
 ```env
-VITE_API_BASE_URL=https://log-shield-hjpg.onrender.com/api
+VITE_API_BASE_URL=https://log-shield-hjpg.onrender.com
 ```
 
 Backend web service:
@@ -275,7 +313,7 @@ Check `DATABASE_URL` in `backend/.env`.
 Check `frontend/.env`:
 
 ```env
-VITE_API_BASE_URL=http://localhost:8000/api
+VITE_API_BASE_URL=http://127.0.0.1:8000
 ```
 
 ### Docker database reset

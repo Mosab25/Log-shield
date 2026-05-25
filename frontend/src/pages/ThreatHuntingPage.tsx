@@ -1,11 +1,17 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, Crosshair, Play, RefreshCw, Search, ShieldAlert } from "lucide-react";
+import { AlertTriangle, Play, RefreshCw, Search, ShieldAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { apiClient } from "../api/client";
 import { InfoHint, RecommendedActions } from "../components/Guidance";
-import { EmptyState, ErrorState, PageHeader, SectionHeader, SkeletonRows } from "../components/UI";
-import { SeverityBadge } from "../components/SeverityBadge";
+import { ErrorState, SectionHeader, SkeletonRows } from "../components/UI";
+import { BulkBar } from "../components/ui/BulkBar";
+import { Chip } from "../components/ui/Chip";
+import { EmptyState } from "../components/ui/EmptyState";
+import { FilterRow } from "../components/ui/FilterRow";
+import { PageHeader } from "../components/ui/PageHeader";
+import { RowActions } from "../components/ui/RowActions";
+import { StatCard } from "../components/ui/StatCard";
 
 type HuntRisk = "low" | "medium" | "high" | "critical";
 type TimeRange = "1h" | "24h" | "7d";
@@ -349,7 +355,7 @@ function saveRunHistory(items: HuntRunSummary[]) {
 
 function riskTextClass(level: HuntRisk): string {
   if (level === "critical") return "text-red-200";
-  if (level === "high") return "text-orange-200";
+  if (level === "high") return "text-red-200";
   if (level === "medium") return "text-amber-200";
   return "text-cyan-200";
 }
@@ -362,6 +368,7 @@ export function ThreatHuntingPage() {
   const [warning, setWarning] = useState<string | null>(null);
   const [findings, setFindings] = useState<Finding[]>([]);
   const [lastRunAt, setLastRunAt] = useState<string | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
 
   const selectedTemplate = HUNT_TEMPLATES.find(template => template.id === selectedTemplateId) ?? HUNT_TEMPLATES[0];
 
@@ -441,10 +448,9 @@ export function ThreatHuntingPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Investigation"
+        eyebrow="PROACTIVE HUNTING"
         title="Threat Hunting"
-        description="Run guided hunts across logs and alerts to find suspicious behavior and investigation leads."
-        icon={Crosshair}
+        description="Search suspicious patterns, investigate anomalies, and pivot across security data."
         actions={
           <button type="button" onClick={() => void runSelectedHunt()} className="soc-button-ghost">
             <RefreshCw className="h-4 w-4" />
@@ -468,22 +474,10 @@ export function ThreatHuntingPage() {
       />
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="soc-panel p-4">
-          <p className="text-xs font-bold uppercase text-slate-500">Hunts Available</p>
-          <p className="mt-2 text-3xl font-black text-white">{runStats.huntsAvailable}</p>
-        </div>
-        <div className="soc-panel p-4">
-          <p className="text-xs font-bold uppercase text-slate-500">Hunts Run Today</p>
-          <p className="mt-2 text-3xl font-black text-cyan-200">{runStats.huntsRunToday}</p>
-        </div>
-        <div className="soc-panel p-4">
-          <p className="text-xs font-bold uppercase text-slate-500">Findings Today</p>
-          <p className="mt-2 text-3xl font-black text-amber-200">{runStats.findingsToday}</p>
-        </div>
-        <div className="soc-panel p-4">
-          <p className="text-xs font-bold uppercase text-slate-500">High-Risk Findings</p>
-          <p className="mt-2 text-3xl font-black text-red-200">{runStats.highRiskToday}</p>
-        </div>
+        <StatCard label="Hunts Available" value={runStats.huntsAvailable} />
+        <StatCard label="Hunts Run Today" value={<span className="text-[var(--brand)]">{runStats.huntsRunToday}</span>} />
+        <StatCard label="Findings Today" value={<span className="text-[var(--status-warning)]">{runStats.findingsToday}</span>} />
+        <StatCard label="High-Risk Findings" value={<span className="text-[var(--status-critical)]">{runStats.highRiskToday}</span>} />
       </div>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,24rem)_1fr]">
@@ -516,7 +510,8 @@ export function ThreatHuntingPage() {
 
         <div className="soc-panel p-5">
           <SectionHeader title={selectedTemplate.title} description={selectedTemplate.description} icon={ShieldAlert} />
-          <div className="grid gap-3 md:grid-cols-[11rem_1fr_auto]">
+          <FilterRow className="p-0 border-0 bg-transparent shadow-none">
+          <div className="grid w-full gap-3 md:grid-cols-[11rem_1fr_auto]">
             <select value={timeRange} onChange={event => setTimeRange(event.target.value as TimeRange)} className="soc-input">
               <option value="1h">Last 1 hour</option>
               <option value="24h">Last 24 hours</option>
@@ -530,6 +525,7 @@ export function ThreatHuntingPage() {
               {loading ? "Running..." : "Run Hunt"}
             </button>
           </div>
+          </FilterRow>
 
           {error ? <div className="mt-4"><ErrorState message={error} onRetry={() => void runSelectedHunt()} /></div> : null}
           {warning ? (
@@ -545,13 +541,25 @@ export function ThreatHuntingPage() {
                 <EmptyState
                   title="No findings for this run"
                   description="Try another hunt template or expand the time range."
-                  icon={AlertTriangle}
+                  icon={<AlertTriangle className="h-5 w-5" />}
                 />
               ) : (
                 <div className="overflow-x-auto">
+                  <BulkBar
+                    active={selectedKeys.length > 0}
+                    selectedCount={selectedKeys.length}
+                    actions={
+                      <>
+                        <button type="button" className="row-action">Export Selected</button>
+                        <button type="button" className="row-action">Create Alerts</button>
+                        <button type="button" className="row-action" onClick={() => setSelectedKeys([])}>Clear</button>
+                      </>
+                    }
+                  />
                   <table className="soc-table">
                     <thead>
                       <tr>
+                        <th />
                         <th>Type</th>
                         <th>Timestamp</th>
                         <th>Source IP</th>
@@ -564,54 +572,47 @@ export function ThreatHuntingPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {findings.map(item => (
-                        <tr key={item.key}>
+                      {findings.map(item => {
+                        const sev = String(item.severity || "").toLowerCase();
+                        const rowStyle = sev === "critical" || sev === "high"
+                          ? { backgroundColor: "rgba(255,59,59,0.03)" }
+                          : sev === "medium"
+                            ? { backgroundColor: "rgba(245,158,11,0.03)" }
+                            : undefined;
+                        return (
+                        <tr key={item.key} style={rowStyle}>
                           <td>
-                            <span className={`rounded-full border px-3 py-1 text-xs font-bold uppercase ${
-                              item.type === "alert"
-                                ? "border-amber-300/35 bg-amber-400/10 text-amber-200"
-                                : "border-cyan-300/35 bg-cyan-400/10 text-cyan-200"
-                            }`}>
-                              {item.type}
-                            </span>
+                            <input
+                              type="checkbox"
+                              checked={selectedKeys.includes(item.key)}
+                              onChange={event => setSelectedKeys(prev => event.target.checked ? [...prev, item.key] : prev.filter(key => key !== item.key))}
+                            />
+                          </td>
+                          <td>
+                            <Chip tone={item.type === "alert" ? "warning" : "info"}>{item.type}</Chip>
                           </td>
                           <td className="text-sm text-slate-300">{new Date(item.timestamp).toLocaleString()}</td>
                           <td className="font-mono text-sm text-slate-300">{item.sourceIp || "-"}</td>
                           <td className="text-sm text-slate-300">{item.username || "-"}</td>
                           <td className="text-sm text-slate-300">{item.eventType}</td>
-                          <td><SeverityBadge severity={item.severity} /></td>
+                          <td>
+                            <Chip tone={sev === "critical" || sev === "high" ? "critical" : sev === "medium" ? "warning" : "info"}>{item.severity}</Chip>
+                          </td>
                           <td className="text-sm font-semibold text-white">{item.riskScore ?? "-"}</td>
                           <td className="max-w-[22rem]">
                             <p className="line-clamp-2 text-sm text-slate-400">{item.message}</p>
                           </td>
                           <td>
-                            <div className="flex flex-wrap gap-2">
-                              {item.type === "alert" ? (
-                                <Link className="text-xs font-semibold text-cyan-200 hover:text-white" to={`/alerts/${item.id}`}>
-                                  View Alert
-                                </Link>
-                              ) : (
-                                <Link className="text-xs font-semibold text-cyan-200 hover:text-white" to="/logs">
-                                  View Log
-                                </Link>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => void navigator.clipboard.writeText(item.message)}
-                                className="text-xs font-semibold text-emerald-200 hover:text-white"
-                              >
-                                Copy for Tools
-                              </button>
-                              <Link
-                                className="text-xs font-semibold text-amber-200 hover:text-white"
-                                to={item.type === "alert" ? `/incidents?alert_id=${item.id}` : "/incidents"}
-                              >
-                                Add to Incident
-                              </Link>
-                            </div>
+                            <RowActions
+                              items={[
+                                { key: "investigate", label: item.type === "alert" ? <Link to={`/alerts/${item.id}`}>Investigate</Link> : <Link to="/logs">Investigate</Link>, variant: "primary" as const },
+                                { key: "copy", label: "Copy", onClick: () => void navigator.clipboard.writeText(item.message) },
+                                { key: "incident", label: "Create Alert", variant: "success" as const },
+                              ]}
+                            />
                           </td>
                         </tr>
-                      ))}
+                      )})}
                     </tbody>
                   </table>
                 </div>

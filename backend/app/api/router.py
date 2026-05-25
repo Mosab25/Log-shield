@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.routes import alerts, audit_logs, auth, awareness, dashboard, detection, health, incidents, ip_blocks, logs, normalized_logs, reports, risk, security_center, threat_intel, threats, url_scanner, users
+from app.api.routes import ai_analysis, alerts, audit_logs, auth, awareness, dashboard, detection, domain_spoofing, email_analysis, email_breach, health, incidents, ip_blocks, logs, normalized_logs, reports, risk, security_center, threat_intel, threats, url_scanner, users, website_analyzer
 
 api_router = APIRouter()
 
@@ -22,3 +22,8 @@ api_router.include_router(threats.router, prefix="/threats", tags=["Threat Intel
 api_router.include_router(threat_intel.router, prefix="/threat-intel", tags=["Threat Intel Search"])
 api_router.include_router(security_center.router, prefix="/security-center", tags=["Security Center"])
 api_router.include_router(url_scanner.router, prefix="/url-scanner", tags=["URL Scanner"])
+api_router.include_router(ai_analysis.router, prefix="/ai-analysis", tags=["AI Analysis"])
+api_router.include_router(website_analyzer.router, prefix="/website-analyzer", tags=["Website Analyzer"])
+api_router.include_router(email_analysis.router, prefix="/email-analysis", tags=["Email Analysis"])
+api_router.include_router(email_breach.router, prefix="/email-breach", tags=["Email Breach Checker"])
+api_router.include_router(domain_spoofing.router, prefix="/domain-spoofing", tags=["Domain Spoofing Defense"])

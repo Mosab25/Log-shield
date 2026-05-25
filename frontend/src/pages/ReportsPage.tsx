@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, Clock3, Download, FileText, RefreshCw, ShieldAlert } from "lucide-react";
-import { API_BASE_URL, apiClient, tokenStorage } from "../api/client";
-import { ReportCard } from "../components/ReportCard";
+import { generateReportDraft, type AiAnalysisResult } from "../api/aiAnalysis";
+import { API_BASE_URL, apiClient, tokenStorage, toUserErrorMessage } from "../api/client";
+import { AiInsightCard } from "../components/ai/AiInsightCard";
+import { AiReportDraft } from "../components/ai/AiReportDraft";
 import { ReportFilters, type ReportFiltersValue } from "../components/ReportFilters";
+import { Chip } from "../components/ui/Chip";
+import { PageHeader } from "../components/ui/PageHeader";
+import { StatCard } from "../components/ui/StatCard";
 import { RiskBadge } from "../components/RiskBadge";
-import { SeverityBadge } from "../components/SeverityBadge";
-import { EmptyState, ErrorState, PageHeader, SectionHeader, SkeletonBlock } from "../components/UI";
+import { EmptyState, ErrorState, SectionHeader, SkeletonBlock } from "../components/UI";
 
 export function ReportsPage() {
   const [filters, setFilters] = useState<ReportFiltersValue>({ reportType: "weekly" });
@@ -20,6 +24,9 @@ export function ReportsPage() {
   const [error, setError] = useState<string | null>(null);
   const [downloadType, setDownloadType] = useState<"csv" | "pdf" | null>(null);
   const [refreshTick, setRefreshTick] = useState(0);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiResult, setAiResult] = useState<AiAnalysisResult | null>(null);
 
   async function load() {
     setLoading(true);
@@ -65,7 +72,7 @@ export function ReportsPage() {
       });
       if (!response.ok) {
         const body = await response.text();
-        throw new Error(body || `Download failed with status ${response.status}`);
+        throw new Error(body || `Report export failed with status ${response.status}`);
       }
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
@@ -75,7 +82,7 @@ export function ReportsPage() {
       link.click();
       URL.revokeObjectURL(url);
     } catch (err: any) {
-      setError(err?.message || "Failed to download report.");
+      setError(toUserErrorMessage(err, "Unable to export report. Please try again."));
     } finally {
       setDownloadType(null);
     }
@@ -90,24 +97,53 @@ export function ReportsPage() {
     Boolean(openVsResolved) ||
     Boolean(mttr);
 
+  async function generateAiDraft() {
+    if (aiBusy) return;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const sourceText = JSON.stringify(
+        {
+          summary,
+          top_risky_ips: ips.slice(0, 10),
+          targeted_users: users.slice(0, 10),
+          alerts_by_severity: severity,
+          open_vs_resolved: openVsResolved,
+          mttr,
+        },
+        null,
+        2,
+      );
+      const response = await generateReportDraft({
+        title: `Reports ${applied.reportType}`,
+        source_text: sourceText,
+        context: "Reports page metrics",
+      });
+      setAiResult(response);
+    } catch (err: any) {
+      setAiError(err?.message || "Failed to generate AI report draft.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Reports"
-        title="Security Reports"
-        description="Review operational summaries, alert resolution posture, and high-risk entities for executive and SOC reporting."
-        icon={FileText}
+        eyebrow="INVESTIGATION OUTPUT"
+        title="Reports"
+        description="Generate, review, and export investigation-ready security reports."
         actions={
           <>
-          <button onClick={() => setRefreshTick(v => v + 1)} disabled={loading} className="inline-flex items-center gap-2 rounded-2xl border border-slate-700 px-4 py-2 text-sm disabled:opacity-50">
+          <button type="button" onClick={() => setRefreshTick(v => v + 1)} disabled={loading} className="inline-flex items-center gap-2 rounded-2xl border border-slate-700 px-4 py-2 text-sm disabled:opacity-50">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </button>
-          <button onClick={() => void download("csv")} disabled={downloadType !== null} className="soc-button-ghost disabled:opacity-50">
+          <button type="button" onClick={() => void download("csv")} disabled={downloadType !== null} className="soc-button-ghost disabled:opacity-50">
             <Download className="mr-2 inline h-4 w-4" />
             {downloadType === "csv" ? "Downloading CSV..." : "CSV"}
           </button>
-          <button onClick={() => void download("pdf")} disabled={downloadType !== null} className="soc-button-primary disabled:opacity-50">
+          <button type="button" onClick={() => void download("pdf")} disabled={downloadType !== null} className="soc-button-primary disabled:opacity-50">
             {downloadType === "pdf" ? "Downloading PDF..." : "PDF"}
           </button>
           </>
@@ -115,6 +151,18 @@ export function ReportsPage() {
       />
 
       <ReportFilters filters={filters} onChange={setFilters} onApply={() => setApplied(filters)} />
+
+      <section className="soc-panel p-5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm font-semibold text-slate-200">AI Investigation Report Draft</p>
+          <button type="button" onClick={() => void generateAiDraft()} disabled={aiBusy} className="soc-button-primary">
+            {aiBusy ? "Generating..." : "Generate AI Report Draft"}
+          </button>
+        </div>
+        {aiError ? <ErrorState message={aiError} /> : null}
+      </section>
+      {aiResult ? <AiInsightCard result={aiResult} title="AI Report Analysis" /> : null}
+      {aiResult ? <AiReportDraft result={aiResult} /> : null}
 
       {error ? <ErrorState message={error} onRetry={() => setRefreshTick(v => v + 1)} /> : null}
 
@@ -127,10 +175,10 @@ export function ReportsPage() {
       {!loading && hasAnyData ? (
         <>
           <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
-            <ReportCard title="Normalized Logs" value={metric("Normalized Logs")} icon={FileText} />
-            <ReportCard title="Total Alerts" value={metric("Total Alerts")} icon={AlertCircle} />
-            <ReportCard title="Critical Alerts" value={metric("Critical Alerts")} icon={ShieldAlert} />
-            <ReportCard title="MTTR Hours" value={mttr?.mean_time_to_resolve_hours ?? 0} icon={Clock3} />
+            <StatCard label="Total Reports" value={metric("Normalized Logs")} icon={<FileText className="h-4 w-4" />} />
+            <StatCard label="Generated This Week" value={metric("Total Alerts")} icon={<AlertCircle className="h-4 w-4" />} />
+            <StatCard label="Open Incidents with Reports" value={metric("Critical Alerts")} icon={<ShieldAlert className="h-4 w-4" />} />
+            <StatCard label="Exported Reports" value={mttr?.mean_time_to_resolve_hours ?? 0} icon={<Clock3 className="h-4 w-4" />} />
           </section>
 
           <section className="grid gap-6 xl:grid-cols-3">
@@ -141,7 +189,7 @@ export function ReportsPage() {
               ) : (
                 severity.map(item => (
                   <div key={item.severity} className="mt-3 flex items-center justify-between gap-3">
-                    <SeverityBadge severity={item.severity} />
+                    <Chip tone={String(item.severity).toLowerCase() === "critical" || String(item.severity).toLowerCase() === "high" ? "critical" : String(item.severity).toLowerCase() === "medium" ? "warning" : "info"}>{item.severity}</Chip>
                     <b>{item.count}</b>
                   </div>
                 ))
