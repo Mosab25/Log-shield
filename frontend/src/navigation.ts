@@ -109,15 +109,6 @@ export const navigationItems: NavigationItem[] = [
     description: "Integration roadmap and onboarding guide for website owners.",
   },
   {
-    label: "Dashboard",
-    path: "/dashboard",
-    icon: LayoutDashboard,
-    section: "OVERVIEW",
-    roles: ["admin", "analyst"],
-    keywords: ["dashboard", "overview", "metrics", "risk", "alerts"],
-    description: "Overview of alerts, risk, logs, incidents, and activity.",
-  },
-  {
     label: "Home",
     path: "/home",
     icon: Home,
@@ -125,6 +116,15 @@ export const navigationItems: NavigationItem[] = [
     roles: ["admin", "analyst", "viewer"],
     keywords: ["home", "start", "landing"],
     description: "Start page for LogShield modules and security operations workflow.",
+  },
+  {
+    label: "Dashboard",
+    path: "/dashboard",
+    icon: LayoutDashboard,
+    section: "OVERVIEW",
+    roles: ["admin", "analyst"],
+    keywords: ["dashboard", "overview", "metrics", "risk", "alerts"],
+    description: "Overview of alerts, risk, logs, incidents, and activity.",
   },
   {
     label: "Cinematic Demo",
