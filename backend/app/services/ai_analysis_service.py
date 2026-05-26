@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import re
 from dataclasses import dataclass
 from urllib.error import URLError
@@ -171,7 +172,7 @@ def _detect_signals(text_lower: str) -> list[DetectionSignal]:
             DetectionSignal(
                 reason="Repeated failed authentication patterns were detected.",
                 score=30,
-                attack_type="credential_attack",
+                attack_type="brute_force",
                 severity="high",
                 mitre=[MitreMapping(technique_id="T1110", technique_name="Brute Force", tactic="Credential Access", reason="Multiple failed authentication indicators.")],
                 actions=["Rate-limit login attempts.", "Lock or monitor affected accounts.", "Review source IP reputation."],
@@ -240,6 +241,7 @@ def _detect_signals(text_lower: str) -> list[DetectionSignal]:
 
 def _local_fallback_analysis(prepared_text: str) -> AiAnalysisResult:
     lower = prepared_text.lower()
+    alert_context = _extract_alert_context(prepared_text)
     signals = _detect_signals(lower)
     score = min(100, sum(signal.score for signal in signals))
     if not prepared_text.strip():
@@ -274,11 +276,30 @@ def _local_fallback_analysis(prepared_text: str) -> AiAnalysisResult:
 
     iocs = _extract_iocs(prepared_text)
     confidence = 0.2 if verdict == "benign" else min(0.98, 0.35 + (score / 120))
+
+    score, severity, verdict, confidence, attack_type, reasons, actions, mitre = _apply_alert_consistency_guards(
+        score=score,
+        severity=severity,
+        verdict=verdict,
+        confidence=confidence,
+        attack_type=attack_type,
+        reasons=reasons,
+        actions=actions,
+        mitre=mitre,
+        context=alert_context,
+        text_lower=lower,
+    )
+
     summary = (
         "Local fallback analysis detected suspicious indicators with mapped defensive actions."
         if verdict != "benign"
         else "Local fallback analysis did not detect strong malicious indicators."
     )
+    if attack_type == "brute_force" and verdict == "attack_detected":
+        summary = (
+            "Multiple failed login attempts against different users from the same source IP indicate "
+            "a likely brute-force or credential stuffing attempt."
+        )
     return AiAnalysisResult(
         mode="local_fallback",
         verdict=verdict,
@@ -300,3 +321,181 @@ def _sanitize_input(raw_text: str) -> str:
     redacted = re.sub(r"(?i)(password|passwd|secret|api[_-]?key)\s*[:=]\s*[^\s,;]+", r"\1=[REDACTED]", limited)
     redacted = re.sub(r"eyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9._-]+\.[a-zA-Z0-9._-]+", "[REDACTED_JWT]", redacted)
     return redacted
+
+
+def _extract_alert_context(text: str) -> dict[str, object]:
+    def _match(pattern: str) -> str | None:
+        hit = re.search(pattern, text, flags=re.IGNORECASE)
+        return hit.group(1).strip() if hit else None
+
+    def _as_int(value: str | None) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except ValueError:
+            return None
+
+    title = _match(r"^Title:\s*(.+)$")
+    severity = (_match(r"^Severity:\s*(.+)$") or "").lower()
+    risk_score = _as_int(_match(r"^Risk Score:\s*(\d{1,3})$"))
+    status = _match(r"^Status:\s*(.+)$")
+    rule_name = _match(r"^Detection Rule:\s*(.+)$")
+    rule_weight = _as_int(_match(r"^Detection Rule Weight:\s*(\d{1,3})$"))
+    mitre = _match(r"^MITRE:\s*(.+)$") or _match(r"^MITRE Technique:\s*(.+)$")
+    source_ip = _match(r"^Source IP:\s*(.+)$")
+    username = _match(r"^Username:\s*(.+)$") or _match(r"^User:\s*(.+)$")
+    related_count = _as_int(_match(r"^Related Logs Count:\s*(\d{1,4})$"))
+    related_events = (_match(r"^Related Log Event Types:\s*(.+)$") or "").lower()
+    rule_explanation = _match(r"^Rule Explanation:\s*(.+)$")
+    risk_explanation = _match(r"^Risk Explanation:\s*(.+)$")
+
+    targeted_users = _as_int(_match(r"^Targeted Usernames Count:\s*(\d{1,3})$"))
+    failed_login_count = _as_int(_match(r"^Failed Login Count:\s*(\d{1,4})$"))
+
+    return {
+        "title": title or "",
+        "severity": severity,
+        "risk_score": risk_score,
+        "status": status or "",
+        "rule_name": (rule_name or "").lower(),
+        "rule_weight": rule_weight,
+        "mitre": (mitre or "").upper(),
+        "source_ip": source_ip or "",
+        "username": username or "",
+        "related_count": related_count or 0,
+        "related_events": related_events,
+        "rule_explanation": rule_explanation or "",
+        "risk_explanation": risk_explanation or "",
+        "targeted_users": targeted_users or 0,
+        "failed_login_count": failed_login_count or 0,
+    }
+
+
+def _severity_rank(level: str) -> int:
+    order = {
+        "informational": 0,
+        "low": 1,
+        "medium": 2,
+        "high": 3,
+        "critical": 4,
+    }
+    return order.get(level, 0)
+
+
+def _max_severity(left: str, right: str) -> str:
+    return left if _severity_rank(left) >= _severity_rank(right) else right
+
+
+def _apply_alert_consistency_guards(
+    *,
+    score: int,
+    severity: str,
+    verdict: str,
+    confidence: float,
+    attack_type: str,
+    reasons: list[str],
+    actions: list[str],
+    mitre: list[MitreMapping],
+    context: dict[str, object],
+    text_lower: str,
+) -> tuple[int, str, str, float, str, list[str], list[str], list[MitreMapping]]:
+    alert_severity = str(context.get("severity") or "").lower()
+    alert_risk = int(context.get("risk_score") or 0)
+    related_count = int(context.get("related_count") or 0)
+    targeted_users = int(context.get("targeted_users") or 0)
+    failed_login_count = int(context.get("failed_login_count") or 0)
+    mitre_text = str(context.get("mitre") or "")
+    rule_name = str(context.get("rule_name") or "")
+    related_events = str(context.get("related_events") or "")
+    src_ip = str(context.get("source_ip") or "")
+
+    has_mitre = bool(mitre) or bool(mitre_text)
+    has_failed_login_pattern = any(
+        marker in text_lower
+        for marker in ("failed login", "failed_login", "login_failed", "invalid password", "4625")
+    ) or "failed_login" in related_events
+    is_multi_user_same_ip_rule = "multiple users from same ip" in rule_name
+    has_t1110 = "T1110" in mitre_text.upper() or any(m.technique_id.upper() == "T1110" for m in mitre)
+    multi_user_target = targeted_users >= 2 or ("sales.user" in text_lower and "finance.user" in text_lower)
+
+    if has_failed_login_pattern and (has_t1110 or is_multi_user_same_ip_rule or multi_user_target):
+        attack_type = "brute_force"
+        verdict = "attack_detected"
+        severity = _max_severity(severity, "high")
+        score = max(score, 80)
+        confidence = max(confidence, 0.8)
+        if not any(m.technique_id.upper() == "T1110" for m in mitre):
+            mitre.append(
+                MitreMapping(
+                    technique_id="T1110",
+                    technique_name="Brute Force",
+                    tactic="Credential Access",
+                    reason="Mapped from repeated failed authentication and alert context.",
+                )
+            )
+        if related_count >= 3:
+            reasons.append("Three or more related failed-login events are linked.")
+        if multi_user_target:
+            reasons.append("Multiple usernames were targeted from the same source IP.")
+        if has_t1110:
+            reasons.append("MITRE technique T1110 Brute Force is mapped.")
+        if src_ip and _looks_external_ip(src_ip):
+            reasons.append("External or unknown source IP observed.")
+        actions.extend(
+            [
+                "Rate-limit login attempts.",
+                "Lock or monitor affected accounts.",
+                "Review source IP reputation.",
+                "Check for successful logins after the failed attempts.",
+                "Block the source IP if it violates policy.",
+            ]
+        )
+
+    if alert_severity in {"high", "critical"} or alert_risk >= 70:
+        severity = _max_severity(severity, "high")
+        if score < 50:
+            score = max(score, max(0, alert_risk - 10))
+            reasons.append("Adjusted to match alert risk context and linked evidence.")
+        score = max(score, min(alert_risk, 90))
+        verdict = "attack_detected" if score >= 75 else verdict
+
+    if alert_risk >= 80:
+        score = max(score, 75)
+        if has_mitre and (related_count > 0 or failed_login_count > 0):
+            confidence = max(confidence, 0.8)
+
+    if score >= 90:
+        severity = "critical"
+        verdict = "attack_detected"
+    elif score >= 70:
+        severity = _max_severity(severity, "high")
+        verdict = "attack_detected"
+    elif score >= 35:
+        severity = _max_severity(severity, "medium")
+        verdict = "suspicious"
+    elif score > 0 and severity == "informational":
+        severity = "low"
+
+    if not has_mitre and any(k in text_lower for k in ("mitre:", "t1110", "t1078", "t1190")):
+        confidence = max(confidence, 0.75)
+
+    return (
+        min(100, score),
+        severity,
+        verdict,
+        min(0.98, confidence),
+        attack_type,
+        list(dict.fromkeys(reasons)),
+        list(dict.fromkeys(actions)),
+        mitre,
+    )
+
+
+def _looks_external_ip(value: str) -> bool:
+    candidate = value.strip()
+    try:
+        ip = ipaddress.ip_address(candidate)
+        return not (ip.is_private or ip.is_loopback or ip.is_link_local)
+    except ValueError:
+        return True

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 AiMode = Literal["ai_provider", "local_fallback"]
 AiVerdict = Literal["benign", "suspicious", "attack_detected", "insufficient_data"]
 AiAttackType = Literal[
+    "brute_force",
     "credential_attack",
     "web_attack",
     "privilege_escalation",

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Search, ShieldAlert, X } from "lucide-react";
 
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { InfoHint, RecommendedActions } from "../components/Guidance";
 import { AppModal } from "../components/ui/AppModal";
 import { BulkBar } from "../components/ui/BulkBar";
@@ -477,7 +477,7 @@ export function AssetInventoryPage() {
       setIncidents(incidentItems);
       setAssets(buildAssets(logs, alertItems, incidentItems, loadFileAnalyzerFindings()));
     } catch (err: any) {
-      setError(err?.message || "Failed to load asset inventory.");
+      setError(toUserErrorMessage(err, "Failed to load asset inventory."));
       setAssets([]);
       setAlerts([]);
       setIncidents([]);

@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Ban, CheckCircle2, Clock, Plus, RefreshCw, ShieldAlert, Wifi } from "lucide-react";
-import { apiClient, type SelfBlockCheckResponse } from "../api/client";
+import { apiClient, toUserErrorMessage, type SelfBlockCheckResponse } from "../api/client";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Pagination } from "../components/Pagination";
 import { Chip } from "../components/ui/Chip";
@@ -84,7 +84,7 @@ export function BlocksPage() {
     } catch (err: any) {
       setBlocks([]);
       setTotal(0);
-      setError(err?.message || "Failed to load IP blocks.");
+      setError(toUserErrorMessage(err, "Failed to load IP blocks."));
     } finally {
       setLoading(false);
     }
@@ -129,7 +129,7 @@ export function BlocksPage() {
       setMessage("IP block created.");
       await load();
     } catch (err: any) {
-      setError(err?.message || "Failed to create IP block.");
+      setError(toUserErrorMessage(err, "Failed to create IP block."));
     } finally {
       setSaving(false);
     }
@@ -143,7 +143,7 @@ export function BlocksPage() {
       setMessage("IP block removed.");
       await load();
     } catch (err: any) {
-      setError(err?.message || "Failed to remove IP block.");
+      setError(toUserErrorMessage(err, "Failed to remove IP block."));
     }
   }
 

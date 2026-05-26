@@ -15,7 +15,6 @@ import {
   LayoutDashboard,
   ListChecks,
   ScrollText,
-  Search,
   Settings,
   Shield,
   ShieldAlert,
@@ -34,9 +33,11 @@ export type NavigationSection =
   | "MONITORING"
   | "ASSET & RISK"
   | "INVESTIGATION"
+  | "TOOLS & REPORTING"
   | "DETECTION & RESPONSE"
   | "TRAINING"
-  | "ADMINISTRATION";
+  | "ADMINISTRATION"
+  | "ACCOUNT";
 
 export interface NavigationItem {
   label: string;
@@ -54,9 +55,11 @@ export const NAVIGATION_SECTIONS: NavigationSection[] = [
   "MONITORING",
   "ASSET & RISK",
   "INVESTIGATION",
+  "TOOLS & REPORTING",
   "DETECTION & RESPONSE",
   "TRAINING",
   "ADMINISTRATION",
+  "ACCOUNT",
 ];
 
 export const navigationItems: NavigationItem[] = [
@@ -68,15 +71,6 @@ export const navigationItems: NavigationItem[] = [
     roles: ["viewer"],
     keywords: ["my security", "website owner", "overview"],
     description: "User-friendly website security overview for owners.",
-  },
-  {
-    label: "Analyze Website",
-    path: "/tools",
-    icon: Wrench,
-    section: "USER PORTAL",
-    roles: ["viewer"],
-    keywords: ["analyze website", "website scanner", "security analyzer"],
-    description: "Run Website Security Analyzer and review security posture.",
   },
   {
     label: "Scan History",
@@ -115,15 +109,6 @@ export const navigationItems: NavigationItem[] = [
     description: "Integration roadmap and onboarding guide for website owners.",
   },
   {
-    label: "Home",
-    path: "/home",
-    icon: Home,
-    section: "OVERVIEW",
-    roles: ["admin", "analyst", "viewer"],
-    keywords: ["home", "start", "landing"],
-    description: "Start page for LogShield modules and SOC workflow.",
-  },
-  {
     label: "Dashboard",
     path: "/dashboard",
     icon: LayoutDashboard,
@@ -133,22 +118,22 @@ export const navigationItems: NavigationItem[] = [
     description: "Overview of alerts, risk, logs, incidents, and activity.",
   },
   {
+    label: "Home",
+    path: "/home",
+    icon: Home,
+    section: "OVERVIEW",
+    roles: ["admin", "analyst", "viewer"],
+    keywords: ["home", "start", "landing"],
+    description: "Start page for LogShield modules and security operations workflow.",
+  },
+  {
     label: "Cinematic Demo",
     path: "/demo",
     icon: Activity,
     section: "OVERVIEW",
     roles: ["admin", "analyst"],
-    keywords: ["demo", "cinematic", "simulation", "soc demo"],
-    description: "Run the split-screen simulated website attack containment demo.",
-  },
-  {
-    label: "Logs",
-    path: "/logs",
-    icon: ScrollText,
-    section: "MONITORING",
-    roles: ["admin", "analyst"],
-    keywords: ["logs", "events", "raw", "normalized", "evidence"],
-    description: "Search, ingest, and analyze normalized security events.",
+    keywords: ["demo", "cinematic", "simulation"],
+    description: "Run the split-screen simulated defense demo.",
   },
   {
     label: "Alerts",
@@ -160,22 +145,22 @@ export const navigationItems: NavigationItem[] = [
     description: "Triage suspicious activities and security alerts.",
   },
   {
-    label: "Threat Intelligence",
-    path: "/threat-intelligence",
-    icon: ShieldAlert,
+    label: "Logs",
+    path: "/logs",
+    icon: ScrollText,
     section: "MONITORING",
-    roles: ["admin", "analyst", "viewer"],
-    keywords: ["threat", "intel", "intelligence", "ioc", "knowledge", "cve", "nvd", "vulnerability", "cvss", "search"],
-    description: "Review curated threat knowledge and search CVEs from local and NVD sources.",
+    roles: ["admin", "analyst"],
+    keywords: ["logs", "events", "raw", "normalized", "evidence"],
+    description: "Search, ingest, and analyze normalized security events.",
   },
   {
-    label: "URL Reputation Scanner",
-    path: "/url-scanner",
-    icon: Search,
+    label: "Research Hub",
+    path: "/research-hub",
+    icon: ShieldAlert,
     section: "MONITORING",
-    roles: ["admin", "analyst", "viewer"],
-    keywords: ["url", "scanner", "reputation", "virustotal", "link"],
-    description: "Analyze suspicious URLs with reputation intelligence.",
+    roles: ["admin", "analyst"],
+    keywords: ["research", "intel", "cve", "nvd", "vulnerability"],
+    description: "Explore CVEs and curated security research context.",
   },
   {
     label: "Asset Inventory",
@@ -183,8 +168,8 @@ export const navigationItems: NavigationItem[] = [
     icon: Boxes,
     section: "ASSET & RISK",
     roles: ["admin", "analyst"],
-    keywords: ["asset", "inventory", "host", "server", "user", "risk"],
-    description: "Track systems, users, and services affected by SOC activity.",
+    keywords: ["asset", "inventory", "host", "risk"],
+    description: "Track systems, users, and services impacted by security activity.",
   },
   {
     label: "IOC Management",
@@ -192,8 +177,8 @@ export const navigationItems: NavigationItem[] = [
     icon: Fingerprint,
     section: "ASSET & RISK",
     roles: ["admin", "analyst"],
-    keywords: ["ioc", "indicator", "ip", "domain", "hash", "email", "reputation"],
-    description: "Track indicators observed across alerts, logs, scans, and incidents.",
+    keywords: ["ioc", "indicator", "domain", "hash", "ip"],
+    description: "Track indicators observed across alerts and investigations.",
   },
   {
     label: "Incidents",
@@ -201,8 +186,8 @@ export const navigationItems: NavigationItem[] = [
     icon: Briefcase,
     section: "INVESTIGATION",
     roles: ["admin", "analyst"],
-    keywords: ["incident", "case", "timeline", "evidence", "notes"],
-    description: "Manage investigation cases, evidence, notes, and timeline.",
+    keywords: ["incident", "case", "timeline", "evidence"],
+    description: "Manage investigation cases, evidence, and timeline.",
   },
   {
     label: "Threat Hunting",
@@ -210,34 +195,34 @@ export const navigationItems: NavigationItem[] = [
     icon: Crosshair,
     section: "INVESTIGATION",
     roles: ["admin", "analyst"],
-    keywords: ["hunt", "threat hunting", "query", "findings", "suspicious"],
-    description: "Run guided hunts across logs and alerts for investigation leads.",
+    keywords: ["hunt", "query", "suspicious", "findings"],
+    description: "Run guided hunts across logs and alerts.",
   },
   {
     label: "Response Playbooks",
     path: "/playbooks",
     icon: BookMarked,
     section: "INVESTIGATION",
-    roles: ["admin", "analyst", "viewer"],
-    keywords: ["playbook", "response", "checklist", "mitre", "containment"],
+    roles: ["admin", "analyst"],
+    keywords: ["playbook", "response", "checklist"],
     description: "Use structured investigation and response checklists.",
   },
   {
-    label: "SOC Tools",
+    label: "Security Tools",
     path: "/tools",
     icon: Wrench,
-    section: "INVESTIGATION",
+    section: "TOOLS & REPORTING",
     roles: ["admin", "analyst", "viewer"],
-    keywords: ["tools", "cyberchef", "ioc", "jwt", "base64", "hash", "defang"],
-    description: "Decode, transform, and inspect security artifacts locally.",
+    keywords: ["tools", "website analyzer", "url", "ioc", "jwt", "base64"],
+    description: "Run safe security checks and analysis utilities.",
   },
   {
     label: "Reports",
     path: "/reports",
     icon: FileText,
-    section: "INVESTIGATION",
+    section: "TOOLS & REPORTING",
     roles: ["admin", "analyst"],
-    keywords: ["reports", "summary", "export", "charts"],
+    keywords: ["reports", "summary", "export"],
     description: "Review operational summaries and reporting views.",
   },
   {
@@ -246,7 +231,7 @@ export const navigationItems: NavigationItem[] = [
     icon: ListChecks,
     section: "DETECTION & RESPONSE",
     roles: ["admin", "analyst"],
-    keywords: ["rules", "detection", "mitre", "enabled"],
+    keywords: ["rules", "detection", "enabled"],
     description: "Manage detection rules and response logic.",
   },
   {
@@ -255,7 +240,7 @@ export const navigationItems: NavigationItem[] = [
     icon: Ban,
     section: "DETECTION & RESPONSE",
     roles: ["admin"],
-    keywords: ["blocks", "ip", "deny", "blocklist", "response"],
+    keywords: ["blocks", "ip", "deny", "blocklist"],
     description: "Block or unblock suspicious source IP addresses.",
   },
   {
@@ -264,7 +249,7 @@ export const navigationItems: NavigationItem[] = [
     icon: BookOpen,
     section: "TRAINING",
     roles: ["admin", "analyst", "viewer"],
-    keywords: ["awareness", "quiz", "training", "learning"],
+    keywords: ["awareness", "quiz", "training"],
     description: "Learn cybersecurity concepts and take quizzes.",
   },
   {
@@ -273,8 +258,8 @@ export const navigationItems: NavigationItem[] = [
     icon: GraduationCap,
     section: "TRAINING",
     roles: ["admin", "analyst", "viewer"],
-    keywords: ["my scores", "scores", "progress", "learning results"],
-    description: "Review your quiz attempts and improvement areas.",
+    keywords: ["my scores", "progress", "results"],
+    description: "Review your quiz attempts and progress.",
   },
   {
     label: "Quiz Management",
@@ -291,7 +276,7 @@ export const navigationItems: NavigationItem[] = [
     icon: Activity,
     section: "TRAINING",
     roles: ["admin"],
-    keywords: ["awareness scores", "all scores", "training analytics"],
+    keywords: ["awareness scores", "all scores", "analytics"],
     description: "Review all learner scores and training performance.",
   },
   {
@@ -309,7 +294,7 @@ export const navigationItems: NavigationItem[] = [
     icon: Shield,
     section: "ADMINISTRATION",
     roles: ["admin"],
-    keywords: ["security center", "2fa", "audit", "rate limit", "controls"],
+    keywords: ["security center", "2fa", "audit", "controls"],
     description: "Understand platform security controls and posture.",
   },
   {
@@ -334,10 +319,10 @@ export const navigationItems: NavigationItem[] = [
     label: "Settings",
     path: "/settings",
     icon: Settings,
-    section: "ADMINISTRATION",
-    roles: ["admin"],
+    section: "ACCOUNT",
+    roles: ["admin", "analyst", "viewer"],
     keywords: ["settings", "profile", "preferences"],
-    description: "Manage profile details and local console preferences.",
+    description: "Manage profile details and account preferences.",
   },
 ];
 

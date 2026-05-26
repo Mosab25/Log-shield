@@ -162,7 +162,7 @@ export function LoginPage() {
           </div>
 
           <h1 className="mt-8 max-w-3xl text-5xl font-black leading-tight text-cyber-text xl:text-6xl">
-            Real-time defense intelligence for modern SOC teams.
+            Real-time defense intelligence for modern security operations teams.
           </h1>
           <p className="mt-5 max-w-xl text-lg leading-8 text-cyber-muted">
             LogShield brings risk detection, alert triage, and security monitoring into one polished command surface.

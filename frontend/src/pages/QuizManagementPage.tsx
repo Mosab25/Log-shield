@@ -46,7 +46,7 @@ const DEFAULT_CATEGORIES = [
   "Security Fundamentals",
   "Network Security",
   "Web Application Security",
-  "SOC Operations",
+  "Security Operations",
   "Incident Response",
   "Phishing Awareness",
 ];

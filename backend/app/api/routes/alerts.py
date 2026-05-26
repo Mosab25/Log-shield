@@ -42,7 +42,7 @@ def stats(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User,
     status_counts = db.execute(
         select(Alert.status, func.count(Alert.id)).group_by(Alert.status)
     ).all()
-    by_status = {k:0 for k in ["open","investigating","resolved","false_positive","escalated"]}
+    by_status = {k:0 for k in ["open", "acknowledged", "investigating", "resolved", "false_positive", "escalated"]}
     for status, count in status_counts:
         by_status[status] = int(count)
     
@@ -147,6 +147,24 @@ def detail(alert_id: int, db: Annotated[Session, Depends(get_db)], current_user:
 @router.patch("/{alert_id}/status", response_model=AlertActionResponse)
 def update_status(alert_id: int, payload: AlertStatusUpdate, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin","analyst"))]):
     return AlertActionResponse(message="Alert status updated successfully.", alert=AlertService.update_status(db=db, alert_id=alert_id, new_status=payload.status, comment=payload.comment, current_user=current_user))
+
+
+@router.patch("/{alert_id}/acknowledge", response_model=AlertActionResponse)
+def acknowledge_alert(
+    alert_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[User, Depends(require_roles("admin", "analyst"))],
+):
+    return AlertActionResponse(
+        message="Alert acknowledged successfully.",
+        alert=AlertService.update_status(
+            db=db,
+            alert_id=alert_id,
+            new_status="acknowledged",
+            comment="Acknowledged by analyst.",
+            current_user=current_user,
+        ),
+    )
 
 
 @router.patch("/{alert_id}/assign", response_model=AlertActionResponse)

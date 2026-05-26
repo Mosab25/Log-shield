@@ -11,7 +11,7 @@ import {
   ShieldAlert,
   XCircle,
 } from "lucide-react";
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { InfoHint, RecommendedActions, VerdictBadge } from "../components/Guidance";
 import { EmptyState, ErrorState, SectionHeader, SkeletonBlock } from "../components/UI";
 
@@ -111,7 +111,7 @@ export function URLScanDetailsPage() {
       setScan(response);
     } catch (err) {
       setScan(null);
-      setError(err instanceof Error ? err.message : "Failed to load URL scan report.");
+      setError(toUserErrorMessage(err, "Failed to load URL scan report."));
     } finally {
       setLoading(false);
     }
@@ -191,7 +191,7 @@ export function URLScanDetailsPage() {
         title="Continue investigation"
         actions={[
           "Copy a defanged URL before sharing evidence.",
-          "Extract domain and path indicators in SOC Tools.",
+          "Extract domain and path indicators in the Security Operations Toolkit.",
           "Add the URL report to an incident if it relates to an alert.",
           "Open the provider report only if you need raw external context.",
         ]}

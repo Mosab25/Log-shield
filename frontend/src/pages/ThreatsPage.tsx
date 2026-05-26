@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { ShieldAlert, Plus, Search, X } from "lucide-react";
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Pagination } from "../components/Pagination";
 import { SeverityBadge } from "../components/SeverityBadge";
@@ -159,7 +159,7 @@ export function ThreatsPage({ embedded = false }: { embedded?: boolean }) {
     } catch (err: any) {
       setThreats([]);
       setTotal(0);
-      setError(err?.message || "Failed to load threat intelligence entries.");
+      setError(toUserErrorMessage(err, "Failed to load threat intelligence entries."));
     } finally {
       setLoading(false);
     }
@@ -289,7 +289,7 @@ function CreateThreatModal({ onClose, onCreated }: { onClose: () => void; onCrea
       });
       onCreated();
     } catch (err: any) {
-      setError(err?.message ?? "Failed to create threat entry.");
+      setError(toUserErrorMessage(err, "Failed to create threat entry."));
     } finally {
       setSubmitting(false);
     }

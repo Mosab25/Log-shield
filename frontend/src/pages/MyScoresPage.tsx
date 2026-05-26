@@ -65,7 +65,7 @@ export function MyScoresPage() {
       <PageHeader
         eyebrow="SECURITY AWARENESS"
         title="My Scores"
-        description="Review your quiz attempts, understand weak areas, and continue building SOC investigation knowledge."
+        description="Review your quiz attempts, understand weak areas, and continue building Security Operations investigation knowledge."
         actions={
           <button type="button" onClick={() => void load()} className="soc-button-ghost">
             <RefreshCw className="h-4 w-4" />
@@ -90,7 +90,7 @@ export function MyScoresPage() {
         actions={[
           "Review explanations for incorrect answers.",
           "Retake low-scoring quiz categories.",
-          "Practice related SOC Tools on sample IOCs.",
+          "Practice related Security Operations Toolkit tasks on sample IOCs.",
           "Connect quiz topics to real alerts and incidents.",
         ]}
       />

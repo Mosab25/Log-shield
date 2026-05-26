@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Ban, Copy, ExternalLink, Fingerprint, RefreshCw, Search, ShieldAlert, X } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Chip } from "../components/ui/Chip";
 import { RowActions, type RowActionItem } from "../components/ui/RowActions";
@@ -385,7 +385,7 @@ export function IOCManagementPage() {
       setItems(buildIOCRecords(logs, alerts, incidents, scans, blockedIps, loadFileAnalyzerFindings()));
     } catch (err: any) {
       setItems([]);
-      setError(err?.message || "Failed to load IOC records.");
+      setError(toUserErrorMessage(err, "Failed to load IOC records."));
     } finally {
       setLoading(false);
     }
@@ -406,7 +406,7 @@ export function IOCManagementPage() {
       setMessage(`IP ${record.value} was blocked.`);
       await load();
     } catch (err: any) {
-      setError(err?.message || "Failed to block IP.");
+      setError(toUserErrorMessage(err, "Failed to block IP."));
     }
   }
 

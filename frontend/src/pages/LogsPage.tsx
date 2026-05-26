@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
 import { Database, ListFilter, ShieldAlert, Calendar, Search, X, Eye, AlertTriangle, Activity } from "lucide-react";
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { LogsToolbar } from "../components/LogsToolbar";
 import { Pagination } from "../components/Pagination";
 import { Chip } from "../components/ui/Chip";
@@ -136,10 +136,10 @@ export function LogsPage() {
   const loading = logsQuery.isLoading;
   const metadata = metadataQuery.data;
   const summary = useMemo(() => (tab === "normalized" ? summarizeNormalizedLogs(items) : null), [items, tab]);
-  const error = logsQuery.error instanceof Error
-    ? tab === "normalized" && Number((logsQuery.error as any)?.status) >= 500
-      ? "Security Events service is temporarily unavailable (backend 5xx). Check backend runtime and database connectivity, then retry."
-      : logsQuery.error.message
+  const error = logsQuery.error
+    ? tab === "normalized" && Number((logsQuery.error as { status?: number })?.status) >= 500
+      ? "Security Events service is temporarily unavailable. Please try again later."
+      : toUserErrorMessage(logsQuery.error, "Unable to load logs.")
     : null;
 
   async function refreshLogs() {
@@ -281,7 +281,7 @@ export function LogsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Security Logs" title="Security Event Analysis" description="Monitor and analyze security events with enhanced SOC visibility and threat detection." />
+      <PageHeader eyebrow="Security Logs" title="Security Event Analysis" description="Monitor and analyze security events with enhanced Security Operations visibility and threat detection." />
 
       <InfoHint title="How logs support investigations">
         Logs are raw or normalized security events. They are the evidence used to generate alerts, explain incidents, and prove what happened during an investigation.
@@ -669,7 +669,7 @@ export function LogsPage() {
                 title="Suggested next actions"
                 actions={[
                   "Run detection on this event.",
-                  "Send suspicious text to SOC Tools for IOC extraction.",
+                  "Send suspicious text to the Security Operations Toolkit for IOC extraction.",
                   "Create or add to an incident if related activity exists.",
                   "Search related IPs, URLs, or CVEs in Threat Intel or URL Scanner.",
                 ]}

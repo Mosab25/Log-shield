@@ -315,7 +315,7 @@ export function exportScanTxt(scan: StoredWebsiteScan): void {
     scan.summary,
     "",
     "Top Priorities",
-    ...(scan.top_priorities.length ? scan.top_priorities.map((item, index) => `${index + 1}. ${item}`) : ["No priorities listed."]),
+    ...(scan.top_priorities.length ? scan.top_priorities.map((item, index) => `${index + 1}. ${item}`) : ["No urgent priorities detected."]),
     "",
     "Findings",
     ...scan.full_result.findings.map(
@@ -335,7 +335,8 @@ export function exportScanTxt(scan: StoredWebsiteScan): void {
   URL.revokeObjectURL(url);
 }
 
-export function copyExecutiveSummary(scan: StoredWebsiteScan): Promise<void> {
+export async function copyExecutiveSummary(scan: StoredWebsiteScan): Promise<void> {
+  const { copyTextToClipboard } = await import("../../utils/clipboard");
   const text = `Website: ${scan.target_url}\nRisk: ${scan.risk_score}/100 (${scan.risk_level.toUpperCase()})\n\nSummary:\n${scan.summary}`;
-  return navigator.clipboard.writeText(text);
+  await copyTextToClipboard(text);
 }

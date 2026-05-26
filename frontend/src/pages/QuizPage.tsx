@@ -284,7 +284,7 @@ export function QuizPage() {
               title="What to study next"
               actions={[
                 result.passed ? "Retake later to keep the concept fresh." : "Retake this quiz after reviewing explanations.",
-                "Practice related indicators in SOC Tools.",
+                "Practice related indicators in the Security Operations Toolkit.",
                 "Open real alerts or logs that match this topic.",
                 "Use notes to summarize what you learned.",
               ]}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ListChecks, RefreshCw } from "lucide-react";
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { RulesTable } from "../components/RulesTable";
 import { PageHeader } from "../components/ui/PageHeader";
@@ -34,7 +34,7 @@ export function RulesPage() {
       setRules(Array.isArray(response?.items) ? response.items : []);
     } catch (err: any) {
       setRules([]);
-      setError(err?.message || "Failed to load detection rules.");
+      setError(toUserErrorMessage(err, "Failed to load detection rules."));
     } finally {
       setLoading(false);
     }
@@ -51,7 +51,7 @@ export function RulesPage() {
       await apiClient.patch(`/detection/rules/${rule.id}`, { is_active: isActive });
       await load();
     } catch (err: any) {
-      setError(err?.message || "Failed to update rule state.");
+      setError(toUserErrorMessage(err, "Failed to update rule state."));
     } finally {
       setTogglingRuleId(null);
     }
@@ -89,7 +89,7 @@ export function RulesPage() {
       setEditingRule(null);
       await load();
     } catch (err: any) {
-      setError(err?.message || "Failed to update detection rule.");
+      setError(toUserErrorMessage(err, "Failed to update detection rule."));
     } finally {
       setSavingEdit(false);
     }

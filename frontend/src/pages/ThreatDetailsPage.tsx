@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ShieldAlert, ArrowLeft, ExternalLink, CheckCircle, XCircle, Clock, FileText } from "lucide-react";
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { EmptyState, ErrorState, SectionHeader, SkeletonBlock } from "../components/UI";
@@ -51,7 +51,7 @@ export function ThreatDetailsPage() {
         setThreat(res);
       } catch (err: any) {
         setThreat(null);
-        setError(err?.message || "Threat entry not found.");
+        setError(toUserErrorMessage(err, "Threat entry not found."));
       } finally {
         setLoading(false);
       }
@@ -64,12 +64,18 @@ export function ThreatDetailsPage() {
 
   const typeColor = TYPE_COLORS[threat.type] ?? "bg-slate-500/20 text-slate-300 border-slate-500/30";
   const typeLabel = TYPE_LABELS[threat.type] ?? threat.type;
-  const statusColor = STATUS_COLORS[threat.status] ?? "bg-slate-500/20 text-slate-300 border-slate-500/30";
-  const statusLabel = threat.status.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+  const isExternalReference = String(threat.source ?? "").toLowerCase() !== "local";
+  const statusColor = isExternalReference
+    ? "bg-slate-500/20 text-slate-300 border-slate-500/30"
+    : (STATUS_COLORS[threat.status] ?? "bg-slate-500/20 text-slate-300 border-slate-500/30");
+  const statusLabel = isExternalReference
+    ? "Reference"
+    : threat.status.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+  const sourceLabel = String(threat.source ?? "N/A").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
 
   return (
     <div className="space-y-6">
-      <Link to="/threats" className="inline-flex items-center gap-2 text-sm font-semibold text-cyan-200 hover:text-white"><ArrowLeft className="h-4 w-4" />Back to Threats</Link>
+      <Link to="/research-hub" className="inline-flex items-center gap-2 text-sm font-semibold text-cyan-200 hover:text-white"><ArrowLeft className="h-4 w-4" />Back to Research Hub</Link>
 
       <section className="soc-panel p-6">
         <div className="flex flex-wrap gap-3">
@@ -90,7 +96,7 @@ export function ThreatDetailsPage() {
         <div className="mt-5 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <DetailTile label="CVE ID" value={threat.cve_id ?? "N/A"} />
           <DetailTile label="CVSS Score" value={String(threat.cvss_score ?? "N/A")} />
-          <DetailTile label="Source" value={threat.source ?? "N/A"} />
+          <DetailTile label="Source" value={sourceLabel} />
           <DetailTile label="Submitted By" value={threat.submitted_by?.full_name ?? "N/A"} />
         </div>
 

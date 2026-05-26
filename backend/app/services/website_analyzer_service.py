@@ -13,6 +13,7 @@ import socket
 import ssl
 from collections import defaultdict
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from typing import Any
 from urllib.parse import urlparse
 
@@ -186,6 +187,66 @@ HIDDEN_SEO_KEYWORDS: tuple[str, ...] = (
     "payday",
 )
 
+ENV_EXPOSURE_PATTERNS: tuple[str, ...] = (
+    "DATABASE_URL",
+    "DB_PASSWORD",
+    "DB_USERNAME",
+    "SECRET_KEY",
+    "API_KEY",
+    "ACCESS_TOKEN",
+    "JWT_SECRET",
+    "PRIVATE_KEY",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "SMTP_PASSWORD",
+    "STRIPE_SECRET",
+    "SUPABASE_SERVICE_ROLE",
+    "OPENAI_API_KEY",
+)
+
+SQL_DUMP_PATTERNS: tuple[str, ...] = (
+    "CREATE TABLE",
+    "INSERT INTO",
+    "DROP TABLE",
+    "ALTER TABLE",
+    "mysqldump",
+    "PostgreSQL database dump",
+    "-- Dumped by",
+    "COPY public.",
+    "LOCK TABLES",
+)
+
+SERVER_STATUS_PATTERNS: tuple[str, ...] = (
+    "Apache Server Status",
+    "Server Version",
+    "Server MPM",
+    "Current Time",
+    "Restart Time",
+    "Total accesses",
+    "CPU Usage",
+    "Scoreboard",
+)
+
+ADMIN_PATTERNS: tuple[str, ...] = (
+    "type=\"password\"",
+    "type='password'",
+    "<form",
+    "admin login",
+    "administrator",
+    "dashboard",
+    "csrf",
+    "login",
+)
+
+WP_ADMIN_PATTERNS: tuple[str, ...] = (
+    "wp-login.php",
+    "WordPress",
+    "wp-admin",
+    "wp-submit",
+    "loginform",
+    "wordpress_test_cookie",
+)
+
 DEFACEMENT_PHRASES: tuple[str, ...] = ("hacked by", "owned by", "webshell")
 SUSPICIOUS_LINK_TERMS: tuple[str, ...] = (
     "casino",
@@ -277,6 +338,28 @@ def detect_provider_context(hostname: str) -> dict[str, Any]:
         "note": note,
         "adjusted_findings": 0,
     }
+
+
+def enrich_provider_context_from_headers(provider_context: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
+    """
+    Enrich provider context using passive response-header hints only.
+    This does not suppress findings; it improves interpretation wording.
+    """
+    lower_headers = {k.lower(): str(v).lower() for k, v in (headers or {}).items()}
+    server_value = lower_headers.get("server", "")
+    cloudflare_detected = (
+        "cloudflare" in server_value
+        or "cf-ray" in lower_headers
+        or "cf-cache-status" in lower_headers
+    )
+
+    if cloudflare_detected:
+        provider_context["known_provider_domain"] = True
+        provider_context["provider_family"] = provider_context.get("provider_family") or "Cloudflare"
+        provider_context["note"] = "Cloudflare edge/proxy detected from response headers."
+        return provider_context
+
+    return provider_context
 
 
 def _severity_priority(value: str) -> int:
@@ -925,8 +1008,199 @@ async def analyze_sitemap(base_url: str) -> dict[str, Any]:
     }
 
 
+def _html_title(body: str) -> str:
+    match = re.search(r"<title[^>]*>(.*?)</title>", body or "", re.I | re.S)
+    return re.sub(r"\s+", " ", match.group(1)).strip().lower() if match else ""
+
+
+def _asset_refs(body: str) -> set[str]:
+    refs = re.findall(r"""(?:src|href)=["']([^"']+\.(?:js|css)(?:\?[^"']*)?)["']""", body or "", re.I)
+    return {ref.split("?")[0] for ref in refs[:30]}
+
+
+def _normalized_html_text(body: str, limit: int = 6000) -> str:
+    text = re.sub(r"<script[^>]*>.*?</script>", " ", body or "", flags=re.I | re.S)
+    text = re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=re.I | re.S)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return re.sub(r"\s+", " ", text).strip().lower()[:limit]
+
+
+def looks_like_same_homepage(path_body: str, homepage_body: str, content_type: str) -> bool:
+    """Detect SPA/history fallback where unknown paths return the same app shell."""
+    lower_ct = (content_type or "").lower()
+    if "text/html" not in lower_ct:
+        return False
+
+    path_lower = (path_body or "").lower()
+    home_lower = (homepage_body or "").lower()
+    if "<html" not in path_lower or "<html" not in home_lower:
+        return False
+
+    score = 0
+    for marker in ('id="root"', "id='root'", 'id="app"', "id='app'"):
+        if marker in path_lower and marker in home_lower:
+            score += 2
+            break
+
+    if _html_title(path_body) and _html_title(path_body) == _html_title(homepage_body):
+        score += 2
+
+    path_assets = _asset_refs(path_body)
+    home_assets = _asset_refs(homepage_body)
+    if path_assets and home_assets:
+        overlap = len(path_assets & home_assets) / max(len(path_assets | home_assets), 1)
+        if overlap >= 0.55:
+            score += 2
+
+    home_len = max(len(homepage_body or ""), 1)
+    length_ratio = abs(len(path_body or "") - home_len) / home_len
+    if length_ratio <= 0.18:
+        score += 1
+
+    similarity = SequenceMatcher(None, _normalized_html_text(path_body), _normalized_html_text(homepage_body)).ratio()
+    if similarity >= 0.86:
+        score += 3
+    elif similarity >= 0.74:
+        score += 1
+
+    return score >= 4
+
+
+def _safe_response_snippet(path: str, body: str, matches: list[str] | None = None) -> str:
+    """Return short evidence without exposing sensitive values."""
+    if matches:
+        if path == "/.env":
+            return "Matched environment variable key(s): " + ", ".join(sorted(set(matches))[:8])
+        return "Matched pattern(s): " + ", ".join(sorted(set(matches))[:8])
+    return _sanitize_html_text_snippet(body, 160)
+
+
+def _contains_any(body: str, patterns: tuple[str, ...], case_sensitive: bool = False) -> list[str]:
+    haystack = body if case_sensitive else body.lower()
+    found: list[str] = []
+    for pattern in patterns:
+        needle = pattern if case_sensitive else pattern.lower()
+        if needle in haystack:
+            found.append(pattern)
+    return found
+
+
+def classify_sensitive_path(path: str, status_code: int | None, content_type: str, body: str, homepage_body: str) -> dict[str, Any]:
+    if status_code is None:
+        classification = "inconclusive"
+        reason = "Request failed or timed out."
+        matches: list[str] = []
+    elif status_code in (401, 403):
+        classification = "protected"
+        reason = "Path appears protected or access is denied."
+        matches = []
+    elif status_code in (404, 410):
+        classification = "not_found"
+        reason = "Path was not found."
+        matches = []
+    elif status_code >= 400:
+        classification = "inconclusive"
+        reason = "LogShield could not confirm exposure from this response."
+        matches = []
+    elif looks_like_same_homepage(body, homepage_body, content_type):
+        classification = "spa_fallback"
+        reason = (
+            "The path returned HTTP 200, but the response appears to be the normal application shell "
+            "due to SPA fallback routing. No sensitive content exposure was confirmed."
+        )
+        matches = []
+    else:
+        lower_ct = (content_type or "").lower()
+        matches = []
+        classification = "generic_html" if "text/html" in lower_ct else "inconclusive"
+        reason = (
+            "The path returned a generic HTML response, but no sensitive content pattern was confirmed."
+            if classification == "generic_html"
+            else "LogShield could not confirm exposure from this response."
+        )
+
+        if path == "/.env":
+            matches = [key for key in ENV_EXPOSURE_PATTERNS if re.search(rf"(^|\n)\s*{re.escape(key)}\s*=", body, re.I)]
+            if matches:
+                classification = "confirmed_exposed"
+                reason = "Environment-style key/value content was observed."
+        elif path == "/backup.sql":
+            matches = _contains_any(body, SQL_DUMP_PATTERNS)
+            if matches:
+                classification = "confirmed_exposed"
+                reason = "SQL dump indicators were observed."
+        elif path == "/server-status":
+            matches = _contains_any(body, SERVER_STATUS_PATTERNS)
+            if matches:
+                classification = "confirmed_exposed"
+                reason = "Apache server-status indicators were observed."
+        elif path == "/admin":
+            matches = _contains_any(body, ADMIN_PATTERNS)
+            has_form = "<form" in body.lower()
+            has_password = "type=\"password\"" in body.lower() or "type='password'" in body.lower()
+            if has_password or (has_form and any(item in [m.lower() for m in matches] for item in ("login", "csrf"))):
+                classification = "confirmed_exposed"
+                reason = "A real admin login or dashboard surface appears to be present."
+        elif path == "/wp-admin":
+            matches = _contains_any(body, WP_ADMIN_PATTERNS)
+            if matches:
+                classification = "confirmed_exposed"
+                reason = "WordPress admin/login indicators were observed."
+        elif path in ("/.git/", "/.git/HEAD"):
+            matches = _contains_any(body, ("ref: refs/heads/", "[core]", "repositoryformatversion"))
+            if matches:
+                classification = "confirmed_exposed"
+                reason = "Git repository metadata indicators were observed."
+        elif path == "/config.php":
+            matches = _contains_any(body, ("<?php", "$db", "DB_PASSWORD", "mysqli_connect", "PDO("), case_sensitive=True)
+            if matches:
+                classification = "confirmed_exposed"
+                reason = "Configuration source indicators were observed."
+        elif path == "/phpinfo.php":
+            matches = _contains_any(body, ("phpinfo()", "PHP Version", "Loaded Configuration File", "_SERVER["))
+            if matches:
+                classification = "confirmed_exposed"
+                reason = "PHP info page indicators were observed."
+        elif path == "/backup.zip":
+            if "zip" in lower_ct or body[:4].encode("utf-8", errors="ignore").startswith(b"PK"):
+                classification = "confirmed_exposed"
+                reason = "Backup archive content type or ZIP signature was observed."
+
+    confirmed = classification == "confirmed_exposed"
+    if confirmed and path == "/.env":
+        evidence = "Matched environment variable key: " + ", ".join(sorted(set(matches))[:8])
+    elif confirmed and path == "/backup.sql":
+        evidence = "Matched SQL dump pattern: " + ", ".join(sorted(set(matches))[:8])
+    elif confirmed:
+        evidence = _safe_response_snippet(path, body, matches)
+    else:
+        evidence = reason
+
+    risk_impact = "none"
+    if confirmed:
+        risk_impact = {
+            "/.env": "critical",
+            "/backup.sql": "high",
+            "/server-status": "medium",
+            "/admin": "medium",
+            "/wp-admin": "medium",
+        }.get(path, "high")
+
+    return {
+        "classification": classification,
+        "confirmed": confirmed,
+        "confirmed_exposed": confirmed,
+        "risk_impact": risk_impact,
+        "reason": reason,
+        "evidence": evidence,
+        "matched_evidence": matches,
+        "response_body_snippet": _safe_response_snippet(path, body, matches),
+        "finding_created": confirmed,
+    }
+
+
 async def check_exposed_paths(base_url: str) -> list[dict[str, Any]]:
-    """Check a small list of common sensitive paths using HEAD/GET."""
+    """Check a small list of common sensitive paths using safe GET and content confirmation."""
     parsed = urlparse(base_url)
     origin = f"{parsed.scheme}://{parsed.netloc}"
     results = []
@@ -938,21 +1212,31 @@ async def check_exposed_paths(base_url: str) -> list[dict[str, Any]]:
         headers={"User-Agent": USER_AGENT},
         verify=True,
     ) as client:
+        homepage_body = ""
+        try:
+            homepage = await client.get(f"{origin}/")
+            homepage_body = homepage.text[:MAX_RESPONSE_SIZE]
+        except Exception:
+            homepage_body = ""
+
         for path in SENSITIVE_PATHS[:12]:
             path_url = f"{origin}{path}"
             try:
-                resp = await client.head(path_url)
-                if resp.status_code == 405:
-                    resp = await client.get(path_url)
+                resp = await client.get(path_url)
                 ct = resp.headers.get("content-type", "")
                 cl = resp.headers.get("content-length", "")
+                body = resp.text[:MAX_RESPONSE_SIZE] if resp.status_code < 400 else ""
+                classification = classify_sensitive_path(path, resp.status_code, ct, body, homepage_body)
                 results.append(
                     {
                         "path": path,
                         "status_code": resp.status_code,
                         "content_type": ct[:80],
                         "content_length": cl,
-                        "accessible": 200 <= resp.status_code < 400,
+                        "response_size": len(body.encode("utf-8", errors="ignore")),
+                        "final_url": str(resp.url),
+                        "accessible": classification["confirmed_exposed"],
+                        **classification,
                     }
                 )
             except Exception:
@@ -962,7 +1246,18 @@ async def check_exposed_paths(base_url: str) -> list[dict[str, Any]]:
                         "status_code": None,
                         "content_type": "",
                         "content_length": "",
+                        "response_size": 0,
+                        "final_url": path_url,
                         "accessible": False,
+                        "classification": "inconclusive",
+                        "confirmed": False,
+                        "confirmed_exposed": False,
+                        "risk_impact": "none",
+                        "reason": "Request failed or timed out.",
+                        "evidence": "LogShield could not confirm exposure from this response.",
+                        "matched_evidence": [],
+                        "response_body_snippet": "",
+                        "finding_created": False,
                     }
                 )
     return results
@@ -1508,9 +1803,10 @@ def generate_findings(
         "/wp-admin": ("medium", "WordPress admin panel publicly reachable."),
     }
     for ep in exposed_results:
-        if ep.get("accessible") and ep["path"] in sensitive_exposed:
+        if ep.get("confirmed_exposed") and ep["path"] in sensitive_exposed:
             sev, desc = sensitive_exposed[ep["path"]]
             counter += 1
+            evidence = ep.get("response_body_snippet") or f"{ep['path']} returned HTTP {ep['status_code']} with confirmed exposure indicators."
             findings.append(
                 _make_finding(
                     f"PATH-{counter}",
@@ -1518,7 +1814,7 @@ def generate_findings(
                     sev,
                     "Exposed Files",
                     "Security Misconfiguration",
-                    f"{ep['path']} returned HTTP {ep['status_code']}.",
+                    f"{ep['path']} returned HTTP {ep['status_code']}. {evidence}",
                     desc,
                     f"Restrict access to {ep['path']} or remove it from production.",
                     1 if sev == "critical" else 2,
@@ -1582,6 +1878,7 @@ def generate_findings(
         analyst_note: str | None = None
         original_severity: str | None = None
         adjustment_reason: str | None = None
+        title = f"Technology disclosure: {t['type']}"
         impact = t["risk"]
         recommendation = t["recommendation"]
         evidence = f"{t['type']}: {t['value']}"
@@ -1598,6 +1895,7 @@ def generate_findings(
                 recommendation = "Hide or generalize exact server software versions."
             elif generic_platform:
                 severity = "informational"
+                title = "Informational platform header detected"
                 impact = "Server header appears generic and does not expose a specific software version."
                 recommendation = "Keep server disclosures minimal and avoid exposing exact versions."
                 analyst_note = (
@@ -1629,7 +1927,7 @@ def generate_findings(
         findings.append(
             _make_finding(
                 f"TECH-{counter}",
-                f"Technology disclosure: {t['type']}",
+                title,
                 severity,
                 "Information Disclosure",
                 "Vulnerable and Outdated Components",
@@ -1729,7 +2027,7 @@ def correlate_risks(
     weak_cookie = any((not c.get("secure")) or (not c.get("httponly")) or c.get("samesite") == "missing" for c in cookie_results)
     has_login_form = any(f.get("has_password") for f in form_results)
     login_no_csrf = any(f.get("has_password") and not f.get("csrf_token_present") for f in form_results)
-    admin_reachable = any(item.get("path") == "/admin" and item.get("accessible") for item in exposed_results)
+    admin_reachable = any(item.get("path") == "/admin" and item.get("confirmed_exposed") for item in exposed_results)
     csp_weak = (not csp_analysis.get("present")) or len(csp_analysis.get("issues", [])) > 0
     tech_disclosure = any(t["type"] in ("Server Header", "X-Powered-By") for t in tech_results)
     sensitive_disclosure = bool(robots_result.get("sensitive_disallow_paths")) or sitemap_result.get("sensitive_url_count", 0) > 0
@@ -1936,6 +2234,7 @@ def generate_summary(
     findings: list[dict[str, Any]],
     correlated: list[dict[str, Any]],
     hidden_defacement_result: dict[str, Any],
+    sensitive_path_checks: list[dict[str, Any]],
     score: int,
     level: str,
     hostname: str,
@@ -1962,12 +2261,27 @@ def generate_summary(
         and hidden_defacement_result.get("suspicious_hidden_elements")
         else " Hidden content checks did not identify obvious SEO spam or defacement indicators."
     )
+    confirmed_path_count = sum(1 for item in sensitive_path_checks if item.get("confirmed"))
+    informational_path_count = sum(
+        1
+        for item in sensitive_path_checks
+        if item.get("classification") in {"spa_fallback", "generic_html", "protected", "not_found", "inconclusive"}
+    )
+    if confirmed_path_count:
+        path_note = " Confirmed sensitive exposure was detected and should be remediated immediately."
+    elif informational_path_count:
+        path_note = (
+            " Sensitive path checks returned HTTP 200 for some paths, but the responses matched the normal "
+            "application shell or did not contain sensitive content patterns. No sensitive file exposure was confirmed."
+        )
+    else:
+        path_note = ""
 
     if level == "critical":
         overview = (
             f"The security posture of {hostname} is critical. "
             f"There are {crit_count} critical and {high_count} high-severity issues that require immediate attention."
-            f"{correlated_note}{hidden_note}"
+            f"{correlated_note}{hidden_note}{path_note}"
         )
         explanation = (
             f"Your website has a Critical security risk ({score}/100). The presence of multiple critical/high issues "
@@ -1978,7 +2292,7 @@ def generate_summary(
         overview = (
             f"The security posture of {hostname} is concerning. "
             f"There are {high_count} high-severity issues that should be addressed promptly."
-            f"{correlated_note}{hidden_note}"
+            f"{correlated_note}{hidden_note}{path_note}"
         )
         explanation = (
             f"Your website has a High security risk ({score}/100). Key issues relate to transport security, client-side hardening, "
@@ -1988,21 +2302,32 @@ def generate_summary(
         overview = (
             f"The security posture of {hostname} shows room for improvement. "
             f"There are {med_count} medium-severity issues to review."
-            f"{correlated_note}{hidden_note}"
+            f"{correlated_note}{hidden_note}{path_note}"
         )
         explanation = (
             f"Your website has a Medium security risk ({score}/100). The main issues are hardening gaps that could increase impact "
             "under targeted attack conditions."
         )
     else:
-        overview = (
-            f"The security posture of {hostname} appears reasonable based on this non-invasive scan. "
-            f"Minor improvements are still recommended.{correlated_note}{hidden_note}"
-        )
-        explanation = (
-            f"Your website has a Low security risk ({score}/100). This safe passive assessment did not detect critical or high risk "
-            "issues, but it does not guarantee full vulnerability absence."
-        )
+        if score <= 5 and crit_count == 0 and high_count == 0 and med_count == 0:
+            overview = (
+                "The website shows a low-risk posture based on this passive assessment. "
+                "Only informational notes were observed."
+                f"{correlated_note}{hidden_note}{path_note}"
+            )
+            explanation = (
+                f"Your website has a Low security risk ({score}/100). "
+                "This passive assessment found informational observations only and no critical/high/medium findings."
+            )
+        else:
+            overview = (
+                f"The security posture of {hostname} appears reasonable based on this non-invasive scan. "
+                f"Minor improvements are still recommended.{correlated_note}{hidden_note}{path_note}"
+            )
+            explanation = (
+                f"Your website has a Low security risk ({score}/100). This safe passive assessment did not detect critical or high risk "
+                "issues, but it does not guarantee full vulnerability absence."
+            )
 
     priorities = []
     if crit_count:
@@ -2167,6 +2492,7 @@ async def run_scan(url: str) -> dict[str, Any]:
                 "robots": {},
                 "sitemap": {},
                 "exposed_paths": [],
+                "sensitive_path_checks": [],
                 "technology": [],
                 "forms": [],
                 "hidden_defacement": {
@@ -2206,6 +2532,7 @@ async def run_scan(url: str) -> dict[str, Any]:
             html_snippet = response.text[:MAX_RESPONSE_SIZE]
         except Exception:
             pass
+    provider_context = enrich_provider_context_from_headers(provider_context, headers_dict)
 
     https_result = check_https(validated_url, response)
     final_scheme = str(urlparse(str(response.url) if response else validated_url).scheme)
@@ -2260,7 +2587,7 @@ async def run_scan(url: str) -> dict[str, Any]:
     severity_summary = summarize_severity(findings)
     owasp_summary = summarize_owasp(findings)
     hostname = parsed.hostname or ""
-    summary_data = generate_summary(findings, correlated, hidden_defacement_result, score, level, hostname)
+    summary_data = generate_summary(findings, correlated, hidden_defacement_result, exposed_results, score, level, hostname)
     roadmap_data = generate_roadmap(findings)
     final_url = str(response.url) if response else validated_url
 
@@ -2293,6 +2620,7 @@ async def run_scan(url: str) -> dict[str, Any]:
             "robots": robots_result,
             "sitemap": sitemap_result,
             "exposed_paths": exposed_results,
+            "sensitive_path_checks": exposed_results,
             "technology": tech_results,
             "forms": form_results,
             "hidden_defacement": hidden_defacement_result,

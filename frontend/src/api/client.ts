@@ -95,6 +95,84 @@ function invalidateCache(pattern: string): void {
   }
 }
 
+function invalidateAllCache(): void {
+  cache.clear();
+}
+
+function invalidateByMutationPath(path: string): void {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+
+  // Always invalidate the exact path cache (if any GET existed for this endpoint shape)
+  invalidateCache(normalized);
+
+  // Domain-specific invalidation map
+  if (normalized.includes("/alerts")) {
+    invalidateCache("/alerts");
+    invalidateCache("/dashboard");
+    invalidateCache("/incidents");
+    invalidateCache("/audit");
+    return;
+  }
+  if (normalized.includes("/incidents")) {
+    invalidateCache("/incidents");
+    invalidateCache("/alerts");
+    invalidateCache("/dashboard");
+    return;
+  }
+  if (normalized.includes("/blocks")) {
+    invalidateCache("/blocks");
+    invalidateCache("/alerts");
+    invalidateCache("/dashboard");
+    invalidateCache("/security-center");
+    return;
+  }
+  if (normalized.includes("/users")) {
+    invalidateCache("/users");
+    invalidateCache("/security-center");
+    invalidateCache("/audit");
+    return;
+  }
+  if (normalized.includes("/detection/rules") || normalized.includes("/rules")) {
+    invalidateCache("/detection/rules");
+    invalidateCache("/rules");
+    invalidateCache("/dashboard");
+    return;
+  }
+  if (normalized.includes("/iocs")) {
+    invalidateCache("/iocs");
+    invalidateCache("/alerts");
+    return;
+  }
+  if (normalized.includes("/assets")) {
+    invalidateCache("/assets");
+    invalidateCache("/dashboard");
+    return;
+  }
+  if (normalized.includes("/reports")) {
+    invalidateCache("/reports");
+    invalidateCache("/dashboard");
+    return;
+  }
+  if (normalized.includes("/threat")) {
+    invalidateCache("/threats");
+    invalidateCache("/threat-intelligence");
+    invalidateCache("/research-hub");
+    return;
+  }
+  if (normalized.includes("/website-analyzer") || normalized.includes("/url-scanner")) {
+    invalidateCache("/scan-history");
+    invalidateCache("/my-security");
+    invalidateCache("/recommendations");
+    invalidateCache("/my-reports");
+    return;
+  }
+  if (normalized.includes("/security-center")) {
+    invalidateCache("/security-center");
+    invalidateCache("/audit");
+    return;
+  }
+}
+
 export interface AuthUser {
   id: number;
   full_name: string;
@@ -397,6 +475,8 @@ export async function apiRequest<T>(
       const retryResult = (await parseBody(retryResponse)) as T;
       if (method === "GET" && cacheEnabled && !body) {
         setCache(path, retryResult, getCacheTtl(path));
+      } else if (method !== "GET") {
+        invalidateByMutationPath(path);
       }
       return retryResult;
     }
@@ -436,6 +516,8 @@ export async function apiRequest<T>(
 
   if (method === "GET" && cacheEnabled && !body) {
     setCache(path, result, getCacheTtl(path));
+  } else if (method !== "GET") {
+    invalidateByMutationPath(path);
   }
 
   return result;
@@ -461,5 +543,8 @@ export const apiClient = {
     apiRequest<T>(path, { method: "DELETE" }),
   invalidateCache: (pattern: string) => {
     invalidateCache(pattern);
+  },
+  invalidateAllCache: () => {
+    invalidateAllCache();
   },
 };

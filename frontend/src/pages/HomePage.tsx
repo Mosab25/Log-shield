@@ -18,7 +18,7 @@ const homeContent = {
       eyebrow: "منصة عمليات أمنية تعليمية",
       title: "مرحبًا بك في LogShield",
       subtitle:
-        "منصة تعليمية وعملية لفرق العمليات الأمنية (SOC) تساعدك على تعلم التحقيق في الأحداث الأمنية وتحليل التنبيهات والتصنيف الأولي للأنشطة المشبوهة داخل بيئة محاكاة واقعية.",
+        "منصة تعليمية وعملية لفرق العمليات الأمنية (Security Operations) تساعدك على تعلم التحقيق في الأحداث الأمنية وتحليل التنبيهات والتصنيف الأولي للأنشطة المشبوهة داخل بيئة محاكاة واقعية.",
     },
     features: [
       {
@@ -55,13 +55,13 @@ const homeContent = {
         icon: Wrench,
         title: "أدوات المحلل",
         description:
-          "استخدم أدوات SOC مثل مستخرج IOC وBase64 ومفكك JWT وأدوات أخرى أثناء التحقيق.",
+          "استخدم أدوات العمليات الأمنية مثل مستخرج IOC وBase64 ومفكك JWT وأدوات أخرى أثناء التحقيق.",
       },
     ],
     educational: {
       title: "بيئة تدريبية واقعية",
       description:
-        "تم تصميم LogShield كمنصة تعليمية وعملية تسمح للمستخدمين بالتدرّب على تحليل الحوادث والتصنيف الأولي للتنبيهات داخل بيئة آمنة تعتمد على بيانات تجريبية وسيناريوهات تحاكي عمليات SOC الواقعية.",
+        "تم تصميم LogShield كمنصة تعليمية وعملية تسمح للمستخدمين بالتدرّب على تحليل الحوادث والتصنيف الأولي للتنبيهات داخل بيئة آمنة تعتمد على بيانات تجريبية وسيناريوهات تحاكي عمليات Security Operations الواقعية.",
     },
     simulation: {
       title: "سيناريوهات محاكاة جاهزة للتحليل",
@@ -76,28 +76,28 @@ const homeContent = {
         "حلّل السجلات ذات الصلة",
         "أنشئ حادثًا عند الحاجة",
         "أضف الأدلة وملاحظات المحلل",
-        "استخدم معلومات التهديدات وأدوات SOC",
+        "استخدم معلومات التهديدات وأدوات العمليات الأمنية",
         "وثّق الإجراءات عبر التقارير وسجلات التدقيق",
       ],
     },
     cta: {
       title: "ابدأ رحلتك داخل المنصة",
       description:
-        "يمكنك الآن فتح لوحة المعلومات، مراجعة التنبيهات، استكشاف الحوادث، واستخدام أدوات التحليل لفهم سير عمل SOC في الممارسة.",
+        "يمكنك الآن فتح لوحة المعلومات، مراجعة التنبيهات، استكشاف الحوادث، واستخدام أدوات التحليل لفهم سير عمل Security Operations في الممارسة.",
       buttons: {
         dashboard: "فتح لوحة المعلومات",
         alerts: "عرض التنبيهات",
         incidents: "فتح الحوادث",
-        tools: "استكشاف أدوات SOC",
+        tools: "استكشاف أدوات العمليات الأمنية",
       },
     },
   },
   en: {
     hero: {
-      eyebrow: "SOC Simulation Workspace",
+      eyebrow: "Security Operations Workspace",
       title: "Welcome to LogShield",
       subtitle:
-        "An educational and practical SOC platform that helps you learn security investigation, alert analysis, and suspicious activity triage inside a realistic simulation environment.",
+        "An educational and practical Security Operations platform that helps you learn security investigation, alert analysis, and suspicious activity triage inside a realistic simulation environment.",
     },
     features: [
       {
@@ -134,13 +134,13 @@ const homeContent = {
         icon: Wrench,
         title: "Analyst Utilities",
         description:
-          "Use SOC tools such as IOC Extractor, Base64, JWT Decoder, and other utilities during investigations.",
+          "Use Security Operations tools such as IOC Extractor, Base64, JWT Decoder, and other utilities during investigations.",
       },
     ],
     educational: {
       title: "Realistic Training and Simulation Environment",
       description:
-        "LogShield is designed as both an educational and practical platform. It allows users to train on incident analysis and alert triage inside a safe environment powered by demo data and scenarios that simulate real-world SOC operations.",
+        "LogShield is designed as both an educational and practical platform. It allows users to train on incident analysis and alert triage inside a safe environment powered by demo data and scenarios that simulate real-world Security Operations.",
     },
     simulation: {
       title: "Simulated Scenarios Ready for Analysis",
@@ -155,19 +155,19 @@ const homeContent = {
         "Analyze related Logs",
         "Create an Incident when needed",
         "Add evidence and analyst notes",
-        "Use Threat Intelligence and SOC Tools",
+        "Use Threat Intelligence and Security Operations Toolkit",
         "Document actions through Reports and Audit Logs",
       ],
     },
     cta: {
       title: "Start Your Journey Inside the Platform",
       description:
-        "Open the dashboard, review alerts, explore incidents, and use the analysis tools to understand SOC workflow in practice.",
+        "Open the dashboard, review alerts, explore incidents, and use the analysis tools to understand Security Operations workflow in practice.",
       buttons: {
         dashboard: "Open Dashboard",
         alerts: "View Alerts",
         incidents: "Open Incidents",
-        tools: "Explore SOC Tools",
+        tools: "Explore Security Operations Toolkit",
       },
     },
   },

@@ -1,0 +1,54 @@
+/* Dashboard — softer contrast and clearer hierarchy for long viewing sessions */
+.dashboard-page {
+  --dash-surface: color-mix(in srgb, var(--bg-surface) 92%, #0d1524);
+  --dash-border: color-mix(in srgb, var(--border) 85%, transparent);
+}
+
+.dashboard-page .dashboard-hero {
+  border: 1px solid var(--dash-border);
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--brand) 8%, var(--bg-surface)),
+    color-mix(in srgb, var(--bg-secondary) 90%, transparent)
+  );
+  border-radius: 14px;
+  padding: 1rem 1.25rem;
+}
+
+.dashboard-page .dashboard-recommended {
+  background: var(--dash-surface);
+  border-color: var(--dash-border);
+}
+
+.dashboard-page .stats-grid > * {
+  border-radius: 12px;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.dashboard-page .stats-grid > *:hover {
+  border-color: color-mix(in srgb, var(--brand) 28%, var(--border));
+}
+
+.dashboard-page .chart-card {
+  background: var(--dash-surface);
+  border-color: var(--dash-border);
+}
+
+.dashboard-page .tbl tbody tr:hover {
+  background: color-mix(in srgb, var(--brand) 4%, transparent);
+}
+
+.dashboard-page .dashboard-quick-nav a {
+  min-height: 2.5rem;
+  border-radius: 10px;
+}
+
+.dashboard-page .dashboard-quick-nav a.demo-cta {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 768px) {
+  .dashboard-page .dashboard-quick-nav a.demo-cta {
+    grid-column: auto;
+  }
+}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plus, Users } from "lucide-react";
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Pagination } from "../components/Pagination";
 import { UserFormModal } from "../components/UserFormModal";
@@ -40,7 +40,7 @@ export function UsersPage() {
     } catch (err: any) {
       setUsers([]);
       setTotal(0);
-      setError(err?.message || "Failed to load users.");
+      setError(toUserErrorMessage(err, "Failed to load users."));
     } finally {
       setLoading(false);
     }
@@ -134,7 +134,7 @@ export function UsersPage() {
       setBulkMessage(`Disabled ${targets.length} selected user${targets.length === 1 ? "" : "s"}.`);
       await load();
     } catch (err: any) {
-      setError(err?.message || "Unable to disable selected users. Please try again.");
+      setError(toUserErrorMessage(err, "Unable to disable selected users. Please try again."));
     } finally {
       setBulkBusy(null);
     }
@@ -158,7 +158,7 @@ export function UsersPage() {
       setBulkMessage(`Deleted/deactivated ${targets.length} selected user${targets.length === 1 ? "" : "s"}.`);
       await load();
     } catch (err: any) {
-      setError(err?.message || "Unable to delete selected users. Please try again.");
+      setError(toUserErrorMessage(err, "Unable to delete selected users. Please try again."));
     } finally {
       setBulkBusy(null);
     }
@@ -227,7 +227,7 @@ export function UsersPage() {
             </div>
           ) : null}
           {visibleUsers.length === 0 ? (
-            <div className="p-5"><EmptyState title="No users found" description="Create a user to grant access to the SOC workspace." icon={Users} /></div>
+            <div className="p-5"><EmptyState title="No users found" description="Create a user to grant access to the security workspace." icon={Users} /></div>
           ) : (
             <div className="table-wrapper">
               <table className="soc-table tbl">

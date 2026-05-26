@@ -55,6 +55,7 @@ import {
   type DomainSpoofingVariant,
 } from "../api/domainSpoofing";
 import { toUserErrorMessage } from "../api/client";
+import { copyTextToClipboard } from "../utils/clipboard";
 import { AiInsightCard } from "../components/ai/AiInsightCard";
 import { InfoHint, VerdictBadge } from "../components/Guidance";
 import { AppModal } from "../components/ui/AppModal";
@@ -77,6 +78,7 @@ import {
   type StoredWebsiteScan,
 } from "../features/mySecurity/scanHistory";
 import { useAuth } from "../auth/AuthContext";
+import { BRAND } from "../config/branding";
 
 const MAX_INPUT_BYTES = 50 * 1024;
 
@@ -99,16 +101,26 @@ function inputSizeOk(text: string): boolean {
 
 function CopyBtn({ text }: { text: string }) {
   const [ok, setOk] = useState(false);
+  const [failed, setFailed] = useState(false);
   const copy = useCallback(() => {
-    navigator.clipboard.writeText(text).then(
-      () => { setOk(true); setTimeout(() => setOk(false), 1500); },
-      () => {},
+    void copyTextToClipboard(text).then(
+      () => {
+        setFailed(false);
+        setOk(true);
+        setTimeout(() => setOk(false), 1500);
+      },
+      () => {
+        setOk(false);
+        setFailed(true);
+        setTimeout(() => setFailed(false), 2200);
+      },
     );
   }, [text]);
   if (!text) return null;
   return (
     <button type="button" onClick={copy} className="ml-2 shrink-0 rounded-lg border border-cyan-400/15 bg-cyber-elevated px-2 py-1 text-xs text-cyber-muted transition hover:border-cyber-cyan/40 hover:text-cyber-cyan">
-      {ok ? <Check className="inline h-3 w-3 mr-1" /> : <Copy className="inline h-3 w-3 mr-1" />}{ok ? "Copied" : "Copy"}
+      {ok ? <Check className="inline h-3 w-3 mr-1" /> : <Copy className="inline h-3 w-3 mr-1" />}
+      {ok ? "Copied" : failed ? "Copy failed" : "Copy"}
     </button>
   );
 }
@@ -138,10 +150,11 @@ function SafeText({ text }: { text: string }) {
 }
 
 function ToolError({ message }: { message: string }) {
+  const friendlyMessage = toUserErrorMessage(new Error(message), message);
   return (
     <div className="flex items-start gap-2 rounded-2xl border border-amber-400/30 bg-amber-500/10 p-3 text-sm text-amber-200">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-      <span>{message}</span>
+      <span>{friendlyMessage}</span>
     </div>
   );
 }
@@ -1298,10 +1311,10 @@ function LogTriageTool() {
     setAiBusy(true);
     setAiError(null);
     try {
-      const result = await analyzeLogs({ raw_logs: input, context: "SOC Tools Log Triage" });
+      const result = await analyzeLogs({ raw_logs: input, context: "Security Operations Toolkit Log Triage" });
       setAiResult(result);
     } catch (err: any) {
-      setAiError(err?.message || "AI-assisted analysis failed.");
+      setAiError(toUserErrorMessage(err, "AI-assisted analysis failed."));
     } finally {
       setAiBusy(false);
     }
@@ -1820,6 +1833,89 @@ function confidenceTone(confidence?: string): string {
   return "text-slate-400";
 }
 
+function sensitivePathClassificationLabel(classification?: string): string {
+  const labels: Record<string, string> = {
+    confirmed_exposed: "Confirmed Exposed",
+    protected: "Protected",
+    not_found: "Not Found",
+    spa_fallback: "SPA Fallback",
+    generic_html: "Generic HTML",
+    inconclusive: "Inconclusive",
+  };
+  return labels[classification || ""] || "Inconclusive";
+}
+
+function sensitivePathClassificationTone(classification?: string): string {
+  if (classification === "confirmed_exposed") return "border-red-400/25 bg-red-500/10 text-red-200";
+  if (classification === "protected") return "border-slate-700 bg-slate-900/30 text-slate-300";
+  if (classification === "spa_fallback") return "border-cyan-400/20 bg-cyan-500/10 text-cyan-200";
+  if (classification === "generic_html") return "border-slate-700 bg-slate-900/30 text-slate-300";
+  return "border-slate-800 bg-slate-900/20 text-slate-400";
+}
+
+function sensitivePathContentCheckLabel(classification?: string): string {
+  const value = classification || "";
+  if (value === "spa_fallback") return "SPA fallback detected";
+  if (value === "confirmed_exposed") return "Sensitive pattern matched";
+  if (value === "protected") return "Protected response";
+  if (value === "not_found") return "Not found";
+  if (value === "generic_html") return "Generic HTML response";
+  return "Could not verify safely";
+}
+
+function sensitivePathExposureVerdict(classification?: string): string {
+  const value = classification || "";
+  if (value === "confirmed_exposed") return "Confirmed exposed";
+  if (value === "spa_fallback") return "Not exposed";
+  if (value === "protected") return "Protected";
+  if (value === "not_found") return "Not exposed";
+  if (value === "generic_html") return "Not confirmed";
+  return "Inconclusive";
+}
+
+function sensitivePathRiskImpactLabel(path: any): string {
+  const normalized = String(path?.risk_impact || "none").toLowerCase();
+  if (normalized === "none") return "None";
+  if (normalized === "informational") return "Informational";
+  if (normalized === "low") return "Low";
+  if (normalized === "medium") return "Medium";
+  if (normalized === "high") return "High";
+  if (normalized === "critical") return "Critical";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function sensitivePathUserMessage(path: any): string {
+  const classification = String(path?.classification || "");
+  if (classification === "spa_fallback") {
+    return "This path returned HTTP 200, but the content matched the normal application shell. No sensitive file exposure was confirmed.";
+  }
+  if (classification === "confirmed_exposed") {
+    return "The response contained content patterns associated with a sensitive file or admin surface.";
+  }
+  if (classification === "protected") {
+    return "The server denied access to this path.";
+  }
+  if (classification === "not_found") {
+    return "The path was not found.";
+  }
+  if (classification === "generic_html") {
+    return "The path returned HTML, but no sensitive content pattern was confirmed.";
+  }
+  return "LogShield could not confirm exposure from this response.";
+}
+
+function exposureVerdictTone(classification?: string): string {
+  if (classification === "confirmed_exposed") return "border-red-400/25 bg-red-500/10 text-red-200";
+  return "border-slate-700 bg-slate-900/30 text-slate-300";
+}
+
+function riskImpactTone(path: any): string {
+  const normalized = String(path?.risk_impact || "none").toLowerCase();
+  if (normalized === "critical" || normalized === "high") return "border-red-400/25 bg-red-500/10 text-red-200";
+  if (normalized === "medium") return "border-amber-400/25 bg-amber-500/10 text-amber-200";
+  return "border-slate-700 bg-slate-900/30 text-slate-300";
+}
+
 function WebsiteAnalyzerTool() {
   const { user } = useAuth();
   const userId = user?.id ?? null;
@@ -1867,7 +1963,7 @@ function WebsiteAnalyzerTool() {
       setResult(res);
       setStage("done");
     } catch (err: any) {
-      setError(err?.message || "Website analyzer service is unavailable. Please check backend connection.");
+      setError(toUserErrorMessage(err, "Website analyzer service is unavailable. Please check backend connection."));
       setStage("error");
     }
   }
@@ -1927,6 +2023,9 @@ function WebsiteAnalyzerTool() {
     const cookiePrefixCheck = result.checks.cookie_prefix_review;
     const hiddenCheck = result.checks.hidden_defacement;
     const correlatedCheck = result.checks.correlated_risks ?? [];
+    const exposedPathChecks = result.checks.sensitive_path_checks ?? result.checks.exposed_paths ?? [];
+    const exposedConfirmed = exposedPathChecks.filter(path => path.confirmed_exposed || path.classification === "confirmed_exposed");
+    const exposedFallback = exposedPathChecks.filter(path => path.classification === "spa_fallback");
     const providerContext = result.context;
     const tuningSummary = result.context_tuning_summary;
     const severitySummary = result.severity_summary;
@@ -1986,6 +2085,11 @@ function WebsiteAnalyzerTool() {
       "",
       "2. TOP PRIORITIES & REMEDIATION ROADMAP",
       "======================================",
+      topPriorities.length >= 3 ? "Top 3 Priorities:" : "Top Priorities:",
+      ...(topPriorities.length
+        ? topPriorities.slice(0, 3).map((item, idx) => `${idx + 1}. ${item}`)
+        : ["No urgent priorities detected."]),
+      "",
       ...(result.roadmap || []).map(r => 
         `Priority ${r.priority}: [Action] ${r.action}\n  - Effort: ${r.effort.toUpperCase()}  |  Impact: ${r.impact.toUpperCase()}\n  - Associated findings: ${r.findings.join(", ") || "None"}\n`
       ),
@@ -2022,6 +2126,20 @@ function WebsiteAnalyzerTool() {
       `robots.txt fetched: ${robotsCheck?.fetched ? "Yes" : "No"} | sensitive disallow entries: ${robotsCheck?.sensitive_disallow_paths?.length ?? 0}`,
       `sitemap.xml fetched: ${sitemapCheck?.fetched ? "Yes" : "No"} | urls listed: ${sitemapCheck?.url_count ?? 0} | sensitive urls: ${sitemapCheck?.sensitive_url_count ?? 0}`,
       `sitemap HTTP urls: ${sitemapCheck?.http_url_count ?? 0}`,
+      "SENSITIVE PATH CHECK RESULTS",
+      ...(exposedPathChecks.length
+        ? exposedPathChecks.map(path =>
+            [
+              `Path: ${path.path}`,
+              `HTTP Status: ${path.status_code ?? "N/A"}`,
+              `Content Check: ${sensitivePathContentCheckLabel(path.classification)}`,
+              `Exposure Verdict: ${sensitivePathExposureVerdict(path.classification)}`,
+              `Risk Impact: ${sensitivePathRiskImpactLabel(path)}`,
+              `Explanation: ${sensitivePathUserMessage(path)}`,
+              "",
+            ].join("\n"),
+          )
+        : ["  No sensitive path check data available."]),
       "",
       "TLS VERSION SECURITY",
       `TLS 1.0 supported: ${tlsStatusLabel(tlsCheck?.tls_1_0?.status)}`,
@@ -2092,12 +2210,17 @@ function WebsiteAnalyzerTool() {
   const cspAnalysis = result?.checks.csp_analysis;
   const cookiePrefixReview = result?.checks.cookie_prefix_review;
   const hiddenDefacement = result?.checks.hidden_defacement;
+  const exposedPaths = result?.checks.sensitive_path_checks ?? result?.checks.exposed_paths ?? [];
+  const fallbackPaths = exposedPaths.filter(path => path.classification === "spa_fallback");
+  const confirmedExposedPaths = exposedPaths.filter(path => path.confirmed_exposed || path.classification === "confirmed_exposed");
   const correlatedRisks = result?.checks.correlated_risks ?? [];
   const providerContext = result?.context;
   const tuningSummary = result?.context_tuning_summary;
   const adjustedFindings = result?.findings.filter(f => Boolean(f.original_severity)).length ?? 0;
   const analystNotesCount = result?.findings.filter(f => Boolean(f.analyst_note)).length ?? 0;
   const owaspSummary = result?.owasp_summary ?? [];
+  const topPriorities = result?.overall.top_priorities ?? [];
+  const topPriorityHeading = topPriorities.length >= 3 ? "Top 3 Priorities" : "Top Priorities";
 
   return (
     <div className="space-y-6">
@@ -2214,17 +2337,19 @@ function WebsiteAnalyzerTool() {
               <h4 className="text-xs font-semibold uppercase tracking-[0.15em] text-cyan-300">Executive Summary</h4>
               <p className="text-sm text-slate-300 leading-relaxed">{result.overall.summary}</p>
               
-              {result.overall.top_priorities.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-slate-800/40 space-y-1.5">
-                  <p className="text-[11px] font-semibold text-slate-500 uppercase">Top 3 Priorities</p>
-                  {result.overall.top_priorities.slice(0, 3).map((p, i) => (
+              <div className="mt-2 pt-2 border-t border-slate-800/40 space-y-1.5">
+                <p className="text-[11px] font-semibold text-slate-500 uppercase">{topPriorityHeading}</p>
+                {topPriorities.length ? (
+                  topPriorities.slice(0, 3).map((p, i) => (
                     <div key={i} className="flex gap-2 text-xs text-slate-300">
                       <span className="font-black text-cyan-300 shrink-0">{i + 1}.</span>
                       <span>{p}</span>
                     </div>
-                  ))}
-                </div>
-              )}
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-400">No urgent priorities detected.</p>
+                )}
+              </div>
             </div>
 
             <div className="rounded-2xl border border-cyan-300/10 bg-slate-950/70 p-5 space-y-3">
@@ -2261,9 +2386,10 @@ function WebsiteAnalyzerTool() {
               <div className="rounded-xl border border-slate-800 bg-slate-900/30 p-4">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Provider Context</p>
                 <p className="mt-2 text-sm text-slate-200">
-                  {providerContext?.known_provider_domain
-                    ? `Known provider domain detected (${providerContext.provider_family || "Managed platform"}).`
-                    : "No known major provider context detected for this hostname."}
+                  {providerContext?.note
+                    || (providerContext?.known_provider_domain
+                      ? `Known provider domain detected (${providerContext.provider_family || "Managed platform"}).`
+                      : "No major managed provider context detected for this hostname.")}
                 </p>
                 <p className="mt-1 text-xs text-slate-400">{providerContext?.note || "No additional context note was returned."}</p>
               </div>
@@ -2401,6 +2527,84 @@ function WebsiteAnalyzerTool() {
                       <p className="text-xs text-slate-500">URLs listed: {sitemap?.url_count ?? 0}</p>
                       <p className="text-xs text-slate-500">Sensitive URL hints: {sitemap?.sensitive_url_count ?? 0}</p>
                       <p className="text-xs text-slate-500">HTTP URLs in sitemap: {sitemap?.http_url_count ?? 0}</p>
+                    </div>
+                    <div className="rounded-xl border border-slate-800 bg-slate-900/20 p-4 space-y-2 lg:col-span-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">Sensitive Path Check Results</p>
+                        <span className="rounded border border-slate-700 bg-black/30 px-2 py-0.5 text-[11px] text-slate-300">
+                          Confirmed exposures: {confirmedExposedPaths.length}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        HTTP status only shows how the server responded. LogShield also checks the response content before deciding whether a sensitive file is exposed.
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        A 200 response can still be safe when the content is just the normal React/Vite application shell.
+                      </p>
+                      {fallbackPaths.length ? (
+                        <div className="rounded-lg border border-cyan-400/15 bg-cyan-500/5 p-3">
+                          <p className="text-xs font-semibold text-cyan-200">SPA fallback detected for sensitive path check</p>
+                          <div className="mt-2 grid gap-2 md:grid-cols-2">
+                            {fallbackPaths.map(path => (
+                              <div key={`fallback-${path.path}`} className="rounded border border-slate-800 bg-black/25 p-2 text-xs text-slate-300">
+                                <p className="font-mono text-cyan-200">{path.path}</p>
+                                <p>Status: HTTP {path.status_code ?? "unknown"}</p>
+                                <p>Classification: SPA fallback</p>
+                                <p>Risk impact: none</p>
+                                <p className="mt-1 text-slate-500">{path.reason || "Response appears to be the normal application shell. No sensitive content exposure was confirmed."}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                      {confirmedExposedPaths.length ? (
+                        <div className="space-y-2">
+                          {confirmedExposedPaths.map(path => (
+                            <div key={`confirmed-${path.path}`} className="rounded-lg border border-red-400/20 bg-red-500/10 p-3 text-xs text-red-100">
+                              <p className="font-semibold">Confirmed sensitive exposure: <span className="font-mono">{path.path}</span></p>
+                              <p>{path.evidence || path.response_body_snippet || path.reason}</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="overflow-x-auto rounded-lg border border-slate-800">
+                        <table className="min-w-full text-left text-xs">
+                          <thead className="bg-black/30 text-slate-500">
+                            <tr>
+                              <th className="px-3 py-2">Path</th>
+                              <th className="px-3 py-2">HTTP Status</th>
+                              <th className="px-3 py-2">Content Check</th>
+                              <th className="px-3 py-2">Exposure Verdict</th>
+                              <th className="px-3 py-2">Explanation</th>
+                              <th className="px-3 py-2">Risk Impact</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-800">
+                            {exposedPaths.map(path => (
+                              <tr key={`sensitive-path-row-${path.path}`} className="bg-slate-950/20">
+                                <td className="px-3 py-2 font-mono text-cyan-100">{path.path}</td>
+                                <td className="px-3 py-2 text-slate-300">{path.status_code ?? "N/A"}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase ${sensitivePathClassificationTone(path.classification)}`}>
+                                    {sensitivePathContentCheckLabel(path.classification)}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2">
+                                  <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase ${exposureVerdictTone(path.classification)}`}>
+                                    {sensitivePathExposureVerdict(path.classification)}
+                                  </span>
+                                </td>
+                                <td className="max-w-md px-3 py-2 text-slate-400">{sensitivePathUserMessage(path)}</td>
+                                <td className="px-3 py-2">
+                                  <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase ${riskImpactTone(path)}`}>
+                                    {sensitivePathRiskImpactLabel(path)}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
                 ) : null}
@@ -2949,10 +3153,26 @@ function WebsiteAnalyzerTool() {
 
                 {activeTechTab === "paths" && (
                   <div className="space-y-2">
-                    {result.checks.exposed_paths.map((p, i) => (
-                      <div key={i} className={`flex items-center justify-between rounded-xl border px-4 py-3 text-sm ${p.accessible ? "border-amber-400/20 bg-amber-500/5 text-amber-200 font-semibold" : "border-slate-800 bg-slate-900/20 text-slate-500"}`}>
-                        <span className="font-mono">{p.path}</span>
-                        <span className="text-xs font-mono">{p.status_code ?? "N/A"} {p.accessible ? "Accessible" : "Blocked"}</span>
+                    {(result.checks.sensitive_path_checks ?? result.checks.exposed_paths ?? []).map((p, i) => (
+                      <div key={i} className="rounded-xl border border-slate-800/80 bg-cyber-elevated/40 px-4 py-3 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-mono text-slate-200">{p.path}</span>
+                          <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold uppercase ${exposureVerdictTone(p.classification)}`}>
+                            {sensitivePathExposureVerdict(p.classification)}
+                          </span>
+                        </div>
+                        <div className="mt-2 grid gap-2 text-xs text-slate-400 md:grid-cols-3">
+                          <p>
+                            HTTP Status: <span className="font-mono text-slate-200">{p.status_code ?? "N/A"}</span>
+                          </p>
+                          <p>
+                            Content Check: <span className="text-slate-200">{sensitivePathContentCheckLabel(p.classification)}</span>
+                          </p>
+                          <p>
+                            Risk Impact: <span className={`font-semibold ${riskImpactTone(p)}`}>{sensitivePathRiskImpactLabel(p)}</span>
+                          </p>
+                        </div>
+                        <p className="mt-2 text-xs text-slate-300">{sensitivePathUserMessage(p)}</p>
                       </div>
                     ))}
                   </div>
@@ -3865,6 +4085,32 @@ function EmailBreachCheckerTool() {
   );
 }
 
+function UrlReputationScannerTool() {
+  return (
+    <div className="space-y-4">
+      <InfoHint title="URL reputation workflow">
+        Analyze suspicious links with reputation intelligence, threat verdicts, and safe exportable results using the dedicated URL Scanner workspace.
+      </InfoHint>
+
+      <div className="rounded-2xl border border-cyan-400/15 bg-cyber-surface p-4">
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-cyber-text">Use this tool when you need to:</p>
+          <ul className="space-y-1 text-xs text-cyber-muted">
+            <li>- Check suspicious URLs before opening them</li>
+            <li>- Review verdict and risk indicators</li>
+            <li>- Keep scan history for investigation context</li>
+          </ul>
+        </div>
+        <div className="mt-4">
+          <Link to="/url-scanner" className="row-action primary justify-center">
+            Open URL Scanner
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ───────────── Tool Registry ───────────── */
 
 interface ToolDef {
@@ -3895,6 +4141,7 @@ const tools: ToolDef[] = [
   { id: "file-analyzer", label: "File Analyzer", icon: FileWarning, description: "Safely inspect file hashes, signatures, strings, entropy, and IOCs without execution.", category: "IOC & Triage", safety: "No file execution", component: FileAnalyzerTool },
   { id: "domain-spoofing-defense", label: "Domain Spoofing Defense", icon: Globe, description: "Generate limited lookalike domain candidates and passively check DNS signals to detect possible brand impersonation risks.", category: "Website Assessment", safety: "Passive DNS only. Defensive monitoring.", featured: true, component: DomainSpoofingDefenseTool },
   { id: "email-breach-checker", label: "Email Breach Checker", icon: MailSearch, description: "Check whether authorized email addresses appear in known breach records and receive clear account protection recommendations.", category: "Website Assessment", safety: "No password checks. Privacy-first lookup.", featured: true, component: EmailBreachCheckerTool },
+  { id: "url-reputation-scanner", label: "URL Reputation Scanner", icon: Search, description: "Check suspicious links with reputation intelligence in a dedicated safe scanning workflow.", category: "Website Assessment", safety: "Defensive URL analysis workflow", featured: true, component: UrlReputationScannerTool },
   { id: "website-analyzer", label: "Website Security Analyzer", icon: Globe, description: "Scan your website safely and receive a user-friendly security report.", category: "Website Assessment", safety: "Non-invasive GET/HEAD only", featured: true, component: WebsiteAnalyzerTool },
 ];
 
@@ -3917,7 +4164,7 @@ export function SocToolsPage() {
   const [searchParams] = useSearchParams();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const initialTool = normalizeToolQueryValue(searchParams.get("tool")) ?? tools[0].id;
-  const [active, setActive] = useState(initialTool);
+  const [active, setActive] = useState(() => tools.find((item) => item.id === initialTool)?.id ?? tools[0].id);
   const [mobileToolOpen, setMobileToolOpen] = useState(false);
   const [toolFocusHighlight, setToolFocusHighlight] = useState(false);
   const activeToolRef = useRef<HTMLDivElement | null>(null);
@@ -3929,8 +4176,13 @@ export function SocToolsPage() {
   const [query, setQuery] = useState("");
   const [demoOpen, setDemoOpen] = useState(false);
   const [demoToolId, setDemoToolId] = useState<string | null>(null);
-  const tool = tools.find(t => t.id === active)!;
+  const tool = tools.find(t => t.id === active) ?? tools[0];
   const ToolComponent = tool.component;
+
+  useEffect(() => {
+    if (tools.some((item) => item.id === active)) return;
+    setActive(tools[0].id);
+  }, [active]);
   const filteredTools = tools.filter(item => {
     const matchesCategory = category === "All" || item.category === category;
     const q = query.trim().toLowerCase();
@@ -3941,7 +4193,9 @@ export function SocToolsPage() {
   useEffect(() => {
     const requestedTool = normalizeToolQueryValue(searchParams.get("tool"));
     if (!requestedTool || requestedTool === active) return;
-    setActive(requestedTool);
+    if (tools.some((item) => item.id === requestedTool)) {
+      setActive(requestedTool);
+    }
   }, [active, searchParams]);
 
   const focusToolInput = useCallback((container: HTMLDivElement | null) => {
@@ -4009,8 +4263,8 @@ export function SocToolsPage() {
     <ToolAuthGateContext.Provider value={requireAuth}>
     <div className="space-y-6">
       <PageHeader
-        eyebrow="SOC ANALYST TOOLKIT"
-        title="SOC Tools"
+        eyebrow={BRAND.toolkitEyebrow}
+        title={BRAND.toolkitName}
         description="Decode, inspect, extract, and triage security artifacts safely."
       />
 
@@ -4019,7 +4273,7 @@ export function SocToolsPage() {
       </InfoHint>
       {!isAuthenticated ? (
         <InfoHint title="Public read-only mode">
-          You can browse the SOC toolkit and read each tool description. Running analyzers, decoders, extractors, and file triage requires a LogShield account.
+          You can browse the toolkit and read each tool description. Running analyzers, decoders, extractors, and file triage requires a LogShield account.
         </InfoHint>
       ) : null}
 

@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
-AlertStatus = Literal["open", "investigating", "resolved", "false_positive", "escalated"]
+AlertStatus = Literal["open", "acknowledged", "investigating", "resolved", "false_positive", "escalated"]
 AlertSeverity = Literal["low", "medium", "high", "critical"]
 
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ShieldAlert } from "lucide-react";
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { Pagination } from "../components/Pagination";
 import { InfoHint, RecommendedActions } from "../components/Guidance";
 import { Chip } from "../components/ui/Chip";
@@ -59,7 +59,10 @@ export function AlertsPage() {
   const [status, setStatus] = useState("");
   const [severity, setSeverity] = useState("");
   const [updatingId, setUpdatingId] = useState<number | null>(null);
+  const [acknowledgingId, setAcknowledgingId] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const pageSize = 10;
 
@@ -76,7 +79,7 @@ export function AlertsPage() {
   const alerts: any[] = Array.isArray(alertsQuery.data?.items) ? alertsQuery.data.items : [];
   const total = Number(alertsQuery.data?.total ?? 0);
   const loading = alertsQuery.isLoading;
-  const error = alertsQuery.error instanceof Error ? alertsQuery.error.message : null;
+  const error = alertsQuery.error ? toUserErrorMessage(alertsQuery.error, "Unable to load alerts.") : null;
 
   if (loading && alerts.length === 0) {
     return <AlertsSkeleton />;
@@ -96,6 +99,31 @@ export function AlertsPage() {
       await queryClient.invalidateQueries({ queryKey: ["alerts"] });
     } finally {
       setUpdatingId(null);
+    }
+  }
+
+  async function acknowledgeAlert(id: number) {
+    setActionMessage(null);
+    setActionError(null);
+    setAcknowledgingId(id);
+    try {
+      const response = await apiClient.patch<any>(`/alerts/${id}/acknowledge`);
+      const updatedAlert = response?.alert;
+      if (updatedAlert) {
+        queryClient.setQueryData(["alerts", { page, status, severity }], (prev: any) => {
+          if (!prev || !Array.isArray(prev.items)) return prev;
+          return {
+            ...prev,
+            items: prev.items.map((item: any) => (item.id === id ? { ...item, ...updatedAlert } : item)),
+          };
+        });
+      }
+      await queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      setActionMessage("Alert acknowledged successfully.");
+    } catch (err) {
+      setActionError(toUserErrorMessage(err, "Could not acknowledge alert. Please try again."));
+    } finally {
+      setAcknowledgingId(null);
     }
   }
 
@@ -158,6 +186,8 @@ export function AlertsPage() {
       </FilterRow>
 
       {error ? <ErrorState message={error} onRetry={() => void refreshAlerts()} /> : null}
+      {actionMessage ? <div className="rounded-2xl border border-emerald-300/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{actionMessage}</div> : null}
+      {actionError ? <ErrorState message={actionError} /> : null}
       {loading ? <SkeletonRows rows={6} /> : null}
 
       {!loading ? (
@@ -217,7 +247,7 @@ export function AlertsPage() {
                       </td>
                       <td>
                         <Chip tone={statusTone(a.status)}>{String(a.status || "").replace("_", " ")}</Chip>
-                        <select disabled={updatingId === a.id} defaultValue="" onChange={e => void updateStatus(a.id, e.target.value)} className="soc-input mt-2 block py-1.5 text-xs">
+                        <select disabled={updatingId === a.id || acknowledgingId === a.id} defaultValue="" onChange={e => void updateStatus(a.id, e.target.value)} className="soc-input mt-2 block py-1.5 text-xs">
                           <option value="">{updatingId === a.id ? "Updating..." : "Change"}</option>
                           <option value="investigating">Investigating</option><option value="resolved">Resolved</option><option value="false_positive">False Positive</option><option value="escalated">Escalated</option>
                         </select>
@@ -226,7 +256,14 @@ export function AlertsPage() {
                         <RowActions
                           items={[
                             { key: "view", label: "View Details", variant: "primary", onClick: () => { window.location.href = `/alerts/${a.id}`; } },
-                            ...(String(a.status).toLowerCase() === "open" ? [{ key: "ack", label: "Acknowledge" }] : []),
+                            ...(String(a.status).toLowerCase() === "open"
+                              ? [{
+                                  key: "ack",
+                                  label: acknowledgingId === a.id ? "Acknowledging..." : "Acknowledge",
+                                  onClick: () => void acknowledgeAlert(a.id),
+                                  disabled: acknowledgingId === a.id,
+                                }]
+                              : []),
                             ...(String(a.status).toLowerCase() === "resolved" || String(a.status).toLowerCase() === "closed" ? [{ key: "reopen", label: "Reopen" }] : []),
                           ]}
                         />

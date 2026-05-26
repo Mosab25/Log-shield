@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { AlertTriangle, Play, RefreshCw, Search, ShieldAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { InfoHint, RecommendedActions } from "../components/Guidance";
 import { ErrorState, SectionHeader, SkeletonRows } from "../components/UI";
 import { BulkBar } from "../components/ui/BulkBar";
@@ -439,7 +439,7 @@ export function ThreatHuntingPage() {
       saveRunHistory(history);
       setLastRunAt(new Date().toISOString());
     } catch (err: any) {
-      setError(err?.message || "Failed to run hunt.");
+      setError(toUserErrorMessage(err, "Failed to run hunt."));
     } finally {
       setLoading(false);
     }
@@ -468,7 +468,7 @@ export function ThreatHuntingPage() {
         actions={[
           "Run high-risk hunts first when new alerts appear.",
           "Open related logs and alerts from findings for context.",
-          "Send suspicious messages to SOC Tools for IOC extraction.",
+          "Send suspicious messages to the Security Operations Toolkit for IOC extraction.",
           "Create or update incidents when findings form one case.",
         ]}
       />

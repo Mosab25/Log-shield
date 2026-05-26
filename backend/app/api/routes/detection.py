@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_roles
 from app.db.session import get_db
+from app.models.alert import Alert
 from app.models.detection_rule import DetectionRule
 from app.models.user import User
 from app.schemas.detection import DetectionRuleCreate, DetectionRuleListResponse, DetectionRuleResponse, DetectionRuleUpdate, DetectionRunResponse, RunBatchRequest
@@ -43,11 +44,29 @@ def create_rule(payload: DetectionRuleCreate, db: Annotated[Session, Depends(get
     return DetectionRuleResponse.model_validate(rule)
 
 
+@router.delete("/rules/{rule_id}")
+def delete_rule(rule_id: int, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin"))]):
+    rule = db.get(DetectionRule, rule_id)
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found.")
+    linked_alerts = int(db.execute(select(func.count(Alert.id)).where(Alert.detection_rule_id == rule_id)).scalar_one() or 0)
+    if linked_alerts > 0:
+        rule.is_active = False
+        db.commit()
+        return {
+            "message": "Rule was deactivated because it is linked to existing alerts.",
+            "deactivated": True,
+            "deleted": False,
+        }
+    db.delete(rule)
+    db.commit()
+    return {"message": "Rule deleted.", "deactivated": False, "deleted": True}
+
+
 @router.patch("/rules/{rule_id}", response_model=DetectionRuleResponse)
 def update_rule(rule_id: int, payload: DetectionRuleUpdate, db: Annotated[Session, Depends(get_db)], current_user: Annotated[User, Depends(require_roles("admin"))]):
     rule = db.get(DetectionRule, rule_id)
     if not rule:
-        from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Rule not found.")
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(rule, key, value)

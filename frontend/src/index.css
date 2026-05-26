@@ -19,9 +19,9 @@
   --bg-surface: #101826;
   --bg-elevated: #131D2E;
 
-  --text-primary: #EAF6FF;
-  --text-muted: #8FA3B8;
-  --text-faint: rgba(143, 163, 184, 0.45);
+  --text-primary: #DCE8F4;
+  --text-muted: #9AADBF;
+  --text-faint: rgba(154, 173, 191, 0.52);
 
   --border: rgba(143, 163, 184, 0.12);
   --border-accent: rgba(0, 216, 255, 0.25);
@@ -898,13 +898,14 @@ a {
     height: 180px;
   }
 
-  .dashboard-page .dashboard-recommended {
-    display: none;
-  }
+.dashboard-page .dashboard-recommended {
+  display: none;
+}
 
-  .dashboard-page .chart-card {
-    height: 160px;
-  }
+.dashboard-page .chart-card {
+  height: auto;
+  min-height: 240px;
+}
 
   .chart-subtitle {
     display: none;
@@ -978,6 +979,25 @@ a {
 
   .demo-modal-panel {
     touch-action: pan-y;
+  }
+}
+
+/* Keep dashboard chart content contained and prevent overlap with next sections */
+.dashboard-page .charts-row .chart-card {
+  height: auto;
+  min-height: 270px;
+  overflow: hidden;
+}
+
+@media (max-width: 1024px) {
+  .dashboard-page .charts-row .chart-card {
+    min-height: 250px;
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-page .charts-row .chart-card {
+    min-height: 220px;
   }
 }
 

@@ -3,6 +3,7 @@ import { apiClient } from "./client";
 export type AiMode = "ai_provider" | "local_fallback";
 export type AiVerdict = "benign" | "suspicious" | "attack_detected" | "insufficient_data";
 export type AiAttackType =
+  | "brute_force"
   | "credential_attack"
   | "web_attack"
   | "privilege_escalation"

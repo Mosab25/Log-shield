@@ -10,45 +10,46 @@ import { moduleThemeForPath, moduleThemeStyle } from "../theme/moduleThemes";
 import { getRouteAccent } from "../theme/routeAccents";
 
 function defaultOpenSections(role: string | null) {
-  if (!role) return Object.fromEntries(NAVIGATION_SECTIONS.map(section => [section, section === "OVERVIEW"])) as Record<string, boolean>;
-  
+  const allClosed = Object.fromEntries(NAVIGATION_SECTIONS.map(section => [section, false])) as Record<string, boolean>;
+  if (!role) return { ...allClosed, OVERVIEW: true };
+
   if (role === "admin") {
-    return Object.fromEntries([
-      ["USER PORTAL", false],
-      ["OVERVIEW", true],
-      ["MONITORING", true],
-      ["INVESTIGATION", true],
-      ["DETECTION & RESPONSE", true],
-      ["ASSET & RISK", true],
-      ["TRAINING", true],
-      ["ADMINISTRATION", true]
-    ]) as Record<string, boolean>;
+    return {
+      ...allClosed,
+      OVERVIEW: true,
+      MONITORING: true,
+      "ASSET & RISK": true,
+      INVESTIGATION: true,
+      "TOOLS & REPORTING": true,
+      "DETECTION & RESPONSE": true,
+      TRAINING: true,
+      ADMINISTRATION: true,
+      ACCOUNT: true,
+    };
   }
-  
+
   if (role === "analyst") {
-    return Object.fromEntries([
-      ["USER PORTAL", false],
-      ["OVERVIEW", true],
-      ["MONITORING", true],
-      ["INVESTIGATION", true],
-      ["DETECTION & RESPONSE", true],
-      ["ASSET & RISK", true],
-      ["TRAINING", true],
-      ["ADMINISTRATION", false]
-    ]) as Record<string, boolean>;
+    return {
+      ...allClosed,
+      OVERVIEW: true,
+      MONITORING: true,
+      "ASSET & RISK": true,
+      INVESTIGATION: true,
+      "TOOLS & REPORTING": true,
+      "DETECTION & RESPONSE": true,
+      TRAINING: true,
+      ACCOUNT: true,
+    };
   }
-  
-  // For viewer and other roles
-  return Object.fromEntries([
-    ["USER PORTAL", true],
-    ["OVERVIEW", true],
-    ["MONITORING", true],
-    ["TRAINING", true],
-    ["INVESTIGATION", false],
-    ["DETECTION & RESPONSE", false],
-    ["ASSET & RISK", false],
-    ["ADMINISTRATION", false]
-  ]) as Record<string, boolean>;
+
+  return {
+    ...allClosed,
+    "USER PORTAL": true,
+    OVERVIEW: true,
+    "TOOLS & REPORTING": true,
+    TRAINING: true,
+    ACCOUNT: true,
+  };
 }
 
 function onlySectionOpen(section: string) {
@@ -68,6 +69,24 @@ export const Sidebar = memo(function Sidebar({
   const location = useLocation();
   const queryClient = useQueryClient();
   const items = navigationForRole(role);
+  const workspaceMeta = useMemo(() => {
+    if (role === "admin") {
+      return {
+        title: "Admin Workspace",
+        description: "Manage platform security and governance.",
+      };
+    }
+    if (role === "analyst") {
+      return {
+        title: "Security Operations",
+        description: "Monitor, investigate, and respond.",
+      };
+    }
+    return {
+      title: "User Portal",
+      description: "Website checks, reports, and learning.",
+    };
+  }, [role]);
   const routeAccent = getRouteAccent(location.pathname);
   const activeRouteStyle = useMemo(() => ({
     "--module-accent": routeAccent.accent,
@@ -150,7 +169,7 @@ export const Sidebar = memo(function Sidebar({
             {!collapsed ? (
               <div className="min-w-0">
                 <h1 className="truncate text-lg font-black tracking-tight text-cyber-text">LogShield</h1>
-                <p className="truncate text-xs font-medium text-cyber-muted">Guided SOC Console</p>
+                <p className="truncate text-xs font-medium text-cyber-muted">Guided Security Operations Console</p>
               </div>
             ) : null}
           </div>
@@ -245,10 +264,10 @@ export const Sidebar = memo(function Sidebar({
         <div className="shrink-0 border-t border-cyan-400/12 p-4">
           <div className="rounded-2xl border border-cyan-400/10 bg-cyber-elevated/60 p-4">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-semibold uppercase text-cyber-muted">Workspace</span>
+              <span className="text-xs font-semibold uppercase text-cyber-muted">{workspaceMeta.title}</span>
               <span className="rounded-full border border-cyber-green/25 bg-cyber-green/10 px-2 py-0.5 text-xs font-bold text-cyber-green">Online</span>
             </div>
-            <p className="mt-2 text-xs leading-5 text-cyber-muted">Guided triage, investigation, response, and learning surface.</p>
+            <p className="mt-2 text-xs leading-5 text-cyber-muted">{workspaceMeta.description}</p>
           </div>
         </div>
       ) : null}

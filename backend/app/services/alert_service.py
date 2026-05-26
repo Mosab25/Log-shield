@@ -16,7 +16,8 @@ from app.services.audit_service import AuditService
 
 class AlertService:
     ALLOWED_TRANSITIONS = {
-        "open": {"investigating", "false_positive", "escalated"},
+        "open": {"acknowledged", "investigating", "false_positive", "escalated"},
+        "acknowledged": {"investigating", "resolved", "escalated", "false_positive"},
         "investigating": {"resolved", "escalated", "false_positive"},
         "resolved": set(),
         "false_positive": set(),

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Activity, AlertTriangle, Ban, Database, Lock, RefreshCw, Shield, ShieldCheck, Users, UserCheck, Clock, TrendingUp, AlertCircle, CheckCircle, Info, XCircle } from "lucide-react";
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
+import { copyTextToClipboard } from "../utils/clipboard";
 import { InfoHint, RecommendedActions } from "../components/Guidance";
 import { EmptyState, ErrorState, SectionHeader, SkeletonBlock } from "../components/UI";
 import { Chip } from "../components/ui/Chip";
@@ -84,7 +85,7 @@ export function SecurityCenterPage() {
       const result = await apiClient.get<SecurityCenterSummary>("/security-center/summary");
       setData(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load security data");
+      setError(toUserErrorMessage(err, "Unable to load security data."));
     } finally {
       setLoading(false);
     }
@@ -147,21 +148,7 @@ export function SecurityCenterPage() {
   }
 
   async function copyText(text: string) {
-    if (!text.trim()) return;
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return;
-    }
-    const textarea = document.createElement("textarea");
-    textarea.value = text;
-    textarea.setAttribute("readonly", "true");
-    textarea.style.position = "fixed";
-    textarea.style.left = "-9999px";
-    document.body.appendChild(textarea);
-    textarea.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(textarea);
-    if (!ok) throw new Error("Clipboard unavailable.");
+    await copyTextToClipboard(text);
   }
 
   function buildSecuritySummary() {

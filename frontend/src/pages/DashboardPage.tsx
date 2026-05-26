@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { apiClient } from "../api/client";
+import { BRAND } from "../config/branding";
 import { type DashboardFilters } from "../components/Filters";
 import { ChartCard } from "../components/charts/ChartCard";
 import { BulkBar } from "../components/ui/BulkBar";
@@ -441,8 +442,8 @@ function RecentAlertsTable({ alerts, loading }: { alerts: any[]; loading: boolea
               selectedCount={selectedIds.length}
               actions={
                 <>
-                  <button type="button" className="row-action">Acknowledge Selected</button>
-                  <button type="button" className="row-action">Export Selected</button>
+                  <button type="button" className="row-action" disabled title="This action is not configured yet.">Acknowledge Selected</button>
+                  <button type="button" className="row-action" disabled title="This action is not configured yet.">Export Selected</button>
                   <button type="button" className="row-action" onClick={() => setSelectedIds([])}>Clear</button>
                 </>
               }
@@ -490,8 +491,12 @@ function RecentAlertsTable({ alerts, loading }: { alerts: any[]; loading: boolea
                           <RowActions
                             items={[
                               { key: "investigate", label: "Investigate", variant: "primary" as const, onClick: () => { window.location.href = `/alerts/${alert.id}`; } },
-                              ...(status === "open" ? [{ key: "ack", label: "Acknowledge" }] : []),
-                              ...(status === "investigating" || status === "in_progress" ? [{ key: "resolve", label: "Resolve", variant: "success" as const }] : []),
+                              ...(status === "open"
+                                ? [{ key: "ack", label: "Acknowledge", disabled: true, title: "This action is not configured yet." }]
+                                : []),
+                              ...(status === "investigating" || status === "in_progress"
+                                ? [{ key: "resolve", label: "Resolve", variant: "success" as const, disabled: true, title: "This action is not configured yet." }]
+                                : []),
                               ...(status === "resolved" ? [{ key: "view", label: "View" }] : []),
                             ].slice(0, 3)}
                           />
@@ -595,8 +600,8 @@ export function DashboardPage() {
   return (
     <div className="space-y-5 px-0 py-0 text-[var(--text-primary)] dashboard-page">
       <PageHeader
-        eyebrow="SOC OVERVIEW"
-        title="Security Dashboard"
+        eyebrow={BRAND.overviewEyebrow}
+        title="Dashboard"
         description="Monitor alerts, risk trends, incidents, and defensive activity."
         actions={
           <button
@@ -624,9 +629,9 @@ export function DashboardPage() {
         <Link to="/logs" className="row-action primary justify-center">Logs</Link>
         <Link to="/alerts" className="row-action primary justify-center">Alerts</Link>
         <Link to="/incidents" className="row-action primary justify-center">Incidents</Link>
-        <Link to="/tools" className="row-action primary justify-center">SOC Tools</Link>
+        <Link to="/tools" className="row-action primary justify-center">{BRAND.toolkitName}</Link>
         <Link to="/url-scanner" className="row-action primary justify-center">URL Scanner</Link>
-        <Link to="/demo" className="row-action success justify-center">Start Cinematic Website Attack Demo</Link>
+        <Link to="/demo" className="row-action success justify-center">Start Guided Demo</Link>
       </section>
 
       <FilterRow className="bg-[var(--bg-secondary)]/40">

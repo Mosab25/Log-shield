@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Search, Globe, Database, AlertCircle, Download, CheckCircle, Clock, ShieldAlert } from "lucide-react";
-import { ApiError, apiClient, tokenStorage } from "../api/client";
+import { Search, Globe, Database, AlertCircle, CheckCircle, Clock, ShieldAlert, ExternalLink, X } from "lucide-react";
+import { ApiError, apiClient, tokenStorage, toUserErrorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useAuthGate } from "../auth/useAuthGate";
 import { InfoHint, RecommendedActions } from "../components/Guidance";
@@ -10,28 +10,68 @@ import { EmptyState, ErrorState, PageHeader, SkeletonRows } from "../components/
 
 const SOURCE_COLORS: Record<string, string> = {
   local: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-  cached: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+  cached: "bg-slate-500/20 text-slate-300 border-slate-500/30",
   nvd_api: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
 };
 
 function SourceBadge({ source }: { source: string }) {
   const color = SOURCE_COLORS[source] ?? "bg-slate-500/20 text-slate-300 border-slate-500/30";
-  const label = source.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+  const label = source === "cached"
+    ? "Reference"
+    : source.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
   return <span className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-xs font-bold ${color}`}>{source === "local" ? <Database className="h-3 w-3" /> : source === "cached" ? <Clock className="h-3 w-3" /> : <Globe className="h-3 w-3" />}{label}</span>;
+}
+
+function statusMeta(result: any): { label: string; className: string; icon: JSX.Element } {
+  if (result?.result_source !== "local") {
+    return {
+      label: "Reference",
+      className: "border-slate-600/50 bg-slate-700/20 text-slate-200",
+      icon: <Clock className="h-3.5 w-3.5" />,
+    };
+  }
+  if (result?.status === "approved") {
+    return {
+      label: "Approved",
+      className: "border-emerald-500/35 bg-emerald-500/10 text-emerald-300",
+      icon: <CheckCircle className="h-3.5 w-3.5" />,
+    };
+  }
+  if (result?.status === "pending_review") {
+    return {
+      label: "Pending",
+      className: "border-amber-500/35 bg-amber-500/10 text-amber-300",
+      icon: <AlertCircle className="h-3.5 w-3.5" />,
+    };
+  }
+  return {
+    label: "Info",
+    className: "border-slate-600/50 bg-slate-700/20 text-slate-200",
+    icon: <AlertCircle className="h-3.5 w-3.5" />,
+  };
 }
 
 export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { refreshUser, role } = useAuth();
+  const { refreshUser } = useAuth();
   const { requireAuth, loginRequiredModal, isAuthenticated } = useAuthGate();
-  const canImportCves = role === "admin" || role === "analyst";
+  const [activeResult, setActiveResult] = useState<any | null>(null);
   const [query, setQuery] = useState("");
   const [severity, setSeverity] = useState("");
   const [source, setSource] = useState("all");
   const [results, setResults] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [sourceSummary, setSourceSummary] = useState({ local: 0, cached: 0, nvd_api: 0 });
+  const [searchHistory, setSearchHistory] = useState<string[]>(() => {
+    try {
+      const raw = window.localStorage.getItem("logshield.threat_research.search_history");
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter(item => typeof item === "string").slice(0, 8) : [];
+    } catch {
+      return [];
+    }
+  });
   const [externalUnavailable, setExternalUnavailable] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -69,6 +109,15 @@ export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean
       setSourceSummary(res.source_summary ?? { local: 0, cached: 0, nvd_api: 0 });
       setExternalUnavailable(Boolean(res.external_source_unavailable));
       setLastQuery(trimmed);
+      setSearchHistory(prev => {
+        const next = [trimmed, ...prev.filter(item => item.toLowerCase() !== trimmed.toLowerCase())].slice(0, 8);
+        try {
+          window.localStorage.setItem("logshield.threat_research.search_history", JSON.stringify(next));
+        } catch {
+          // ignore storage errors
+        }
+        return next;
+      });
       if (res.message) {
         setMessage(res.message);
       } else if (nextResults.length === 0) {
@@ -81,23 +130,9 @@ export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean
       }
       setResults([]);
       setTotal(0);
-      setMessage(`Search error: ${err?.message || "Unknown error"}`);
+      setMessage(toUserErrorMessage(err, "Unable to load search results."));
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function importCVE(cveId: string) {
-    if (!requireAuth(() => undefined)) return;
-    try {
-      await apiClient.post(`/threat-intel/import-cve/${cveId}`);
-      await runSearch();
-    } catch (err: any) {
-      if (err instanceof ApiError && err.status === 401) {
-        await handleAuthExpired();
-        return;
-      }
-      alert(err?.message ?? "Import failed.");
     }
   }
 
@@ -105,14 +140,14 @@ export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean
     <div className="space-y-6">
       {!embedded ? (
         <PageHeader
-          eyebrow="Threat Intelligence"
-          title="CVE Search"
+          eyebrow="Threat Research Hub"
+          title="Vulnerability Explorer"
           description="Search CVEs, CVSS severity, published dates, affected products, and local threat context for guided vulnerability triage."
           icon={ShieldAlert}
         />
       ) : (
         <div>
-          <p className="text-xs font-black uppercase text-cyan-200">CVE Search</p>
+          <p className="text-xs font-black uppercase text-cyan-200">Vulnerability Explorer</p>
           <h2 className="text-xl font-black text-white">NVD and Local CVE Intelligence</h2>
         </div>
       )}
@@ -150,15 +185,34 @@ export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean
             {loading ? "Searching..." : "Search"}
           </button>
         </div>
+        {searchHistory.length ? (
+          <div className="mt-4 space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Recent Searches</p>
+            <div className="flex flex-wrap gap-2">
+              {searchHistory.map(item => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => {
+                    setQuery(item);
+                    requireAuth(() => void runSearch());
+                  }}
+                  className="rounded-full border border-slate-700 bg-slate-900/50 px-3 py-1 text-xs text-slate-300 transition hover:border-cyan-400/40 hover:text-cyan-200"
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       {message ? <ErrorState message={message} onRetry={lastQuery ? () => void search() : undefined} /> : null}
 
       {hasSummary ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div className="soc-panel px-4 py-3 text-sm text-slate-400">Results <span className="ml-2 font-black text-white">{total}</span></div>
           <div className="soc-panel px-4 py-3 text-sm text-slate-400">Local <span className="ml-2 font-black text-emerald-300">{sourceSummary.local}</span></div>
-          <div className="soc-panel px-4 py-3 text-sm text-slate-400">Cached <span className="ml-2 font-black text-amber-300">{sourceSummary.cached}</span></div>
           <div className="soc-panel px-4 py-3 text-sm text-slate-400">NVD <span className="ml-2 font-black text-cyan-300">{sourceSummary.nvd_api}</span></div>
         </div>
       ) : null}
@@ -201,13 +255,25 @@ export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean
                         <p className="text-xs text-slate-500">{r.category ?? "N/A"} - CVSS: {r.cvss_score ?? "N/A"}</p>
                         <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-400">{r.description || r.title}</p>
                       </td>
-                      <td>{r.status === "approved" ? <CheckCircle className="h-5 w-5 text-emerald-400" /> : r.status === "pending_review" ? <Clock className="h-5 w-5 text-amber-400" /> : <AlertCircle className="h-5 w-5 text-slate-500" />}</td>
                       <td>
-                        {canImportCves && r.result_source === "nvd_api" && r.id === null ? (
-                          <button onClick={() => void importCVE(r.cve_id)} className="soc-button-ghost px-3 py-1.5 text-xs"><Download className="h-4 w-4" />Import</button>
-                        ) : r.id ? (
+                        {(() => {
+                          const meta = statusMeta(r);
+                          return (
+                            <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${meta.className}`}>
+                              {meta.icon}
+                              {meta.label}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td>
+                        {r.id ? (
                           <Link className="font-semibold text-cyan-200 hover:text-white" to={`/threats/${r.id}`}>View</Link>
-                        ) : null}
+                        ) : (
+                          <button onClick={() => setActiveResult(r)} className="soc-button-ghost px-3 py-1.5 text-xs">
+                            View
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -215,6 +281,44 @@ export function ThreatIntelSearchPage({ embedded = false }: { embedded?: boolean
               </table>
             </div>
           )}
+        </div>
+      ) : null}
+      {activeResult ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4" onClick={() => setActiveResult(null)}>
+          <div className="w-full max-w-2xl rounded-2xl border border-slate-700 bg-cyber-bg p-5" onClick={e => e.stopPropagation()}>
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-cyan-300">Threat Details</p>
+                <h3 className="mt-1 text-lg font-black text-white">{activeResult.cve_id || activeResult.title || "Result details"}</h3>
+              </div>
+              <button className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:text-white" onClick={() => setActiveResult(null)} aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3 text-sm text-slate-300">
+              <p><span className="text-slate-500">Severity:</span> {activeResult.severity || "unknown"}</p>
+              <p><span className="text-slate-500">Source:</span> {String(activeResult.result_source || "external").replace(/_/g, " ")}</p>
+              <p><span className="text-slate-500">Category:</span> {activeResult.category || "N/A"}</p>
+              <p><span className="text-slate-500">CVSS:</span> {activeResult.cvss_score ?? "N/A"}</p>
+              <p className="leading-6 text-slate-300">{activeResult.description || activeResult.title || "No additional description available."}</p>
+            </div>
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              {activeResult.cve_id ? (
+                <a
+                  href={`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(activeResult.cve_id)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="soc-button-ghost px-3 py-1.5 text-xs"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  View on NVD
+                </a>
+              ) : null}
+              <button className="soc-button-primary px-3 py-1.5 text-xs" onClick={() => setActiveResult(null)}>
+                Done
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
       {loginRequiredModal}

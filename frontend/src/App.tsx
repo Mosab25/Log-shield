@@ -62,10 +62,11 @@ function App() {
           <Route path="home" element={<HomePage />} />
           <Route path="awareness" element={<AwarenessPage />} />
           <Route path="url-scanner" element={<URLScannerPage />} />
+          <Route path="research-hub" element={<ThreatIntelligencePage />} />
           <Route path="threat-intelligence" element={<ThreatIntelligencePage />} />
           <Route path="threats" element={<ThreatIntelligencePage />} />
           <Route path="threat-intel" element={<ThreatIntelligencePage />} />
-          <Route path="cve-search" element={<Navigate to="/threat-intelligence?tab=cve" replace />} />
+          <Route path="cve-search" element={<Navigate to="/research-hub?tab=cve" replace />} />
           <Route path="playbooks" element={<ResponsePlaybooksPage />} />
           <Route path="tools" element={<SocToolsPage />} />
         </Route>
@@ -91,10 +92,10 @@ function App() {
           <Route path="users" element={<RoleBasedRoute allowedRoles={["admin"]}><UsersPage /></RoleBasedRoute>} />
           <Route path="audit" element={<RoleBasedRoute allowedRoles={["admin"]}><AuditLogsPage /></RoleBasedRoute>} />
           <Route path="blocks" element={<RoleBasedRoute allowedRoles={["admin"]}><BlocksPage /></RoleBasedRoute>} />
-          <Route path="settings" element={<RoleBasedRoute allowedRoles={["admin"]}><SettingsPage /></RoleBasedRoute>} />
+          <Route path="settings" element={<RoleBasedRoute allowedRoles={["admin", "analyst", "viewer"]}><SettingsPage /></RoleBasedRoute>} />
           <Route path="threats/:id" element={<ThreatDetailsPage />} />
           <Route path="assets" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><AssetInventoryPage /></RoleBasedRoute>} />
-          <Route path="vulnerabilities" element={<Navigate to="/threat-intelligence" replace />} />
+          <Route path="vulnerabilities" element={<Navigate to="/research-hub" replace />} />
           <Route path="incidents" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><IncidentsPage /></RoleBasedRoute>} />
           <Route path="incidents/:id" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><IncidentDetailsPage /></RoleBasedRoute>} />
           <Route path="hunting" element={<RoleBasedRoute allowedRoles={["admin", "analyst"]}><ThreatHuntingPage /></RoleBasedRoute>} />

@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Briefcase, Link2, MessageSquare, Paperclip, RefreshCw, ShieldAlert, Timer } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { generateReportDraft, summarizeIncident, type AiAnalysisResult } from "../api/aiAnalysis";
 import { AiInsightCard } from "../components/ai/AiInsightCard";
 import { AiReportDraft } from "../components/ai/AiReportDraft";
@@ -168,7 +168,7 @@ export function IncidentDetailsPage() {
       setOwnerInput(response.owner?.id ? String(response.owner.id) : "");
     } catch (err: any) {
       setIncident(null);
-      setError(err?.message || "Failed to load incident details.");
+      setError(toUserErrorMessage(err, "Failed to load incident details."));
     } finally {
       setLoading(false);
     }
@@ -189,7 +189,7 @@ export function IncidentDetailsPage() {
       setOwnerInput(response.incident.owner?.id ? String(response.incident.owner.id) : "");
       setMessage(response.message);
     } catch (err: any) {
-      setError(err?.message || "Failed to update incident status.");
+      setError(toUserErrorMessage(err, "Failed to update incident status."));
     } finally {
       setSaving(false);
     }
@@ -206,7 +206,7 @@ export function IncidentDetailsPage() {
       setOwnerInput(response.incident.owner?.id ? String(response.incident.owner.id) : "");
       setMessage(response.message);
     } catch (err: any) {
-      setError(err?.message || "Failed to update incident severity.");
+      setError(toUserErrorMessage(err, "Failed to update incident severity."));
     } finally {
       setSaving(false);
     }
@@ -227,7 +227,7 @@ export function IncidentDetailsPage() {
       setOwnerInput(response.incident.owner?.id ? String(response.incident.owner.id) : "");
       setMessage(response.message);
     } catch (err: any) {
-      setError(err?.message || "Failed to update owner.");
+      setError(toUserErrorMessage(err, "Failed to update owner."));
     } finally {
       setSaving(false);
     }
@@ -245,7 +245,7 @@ export function IncidentDetailsPage() {
       setLinkAlertId("");
       setMessage(response.message);
     } catch (err: any) {
-      setError(err?.message || "Failed to link alert.");
+      setError(toUserErrorMessage(err, "Failed to link alert."));
     } finally {
       setSaving(false);
     }
@@ -261,7 +261,7 @@ export function IncidentDetailsPage() {
       setIncident(response.incident);
       setMessage(response.message);
     } catch (err: any) {
-      setError(err?.message || "Failed to unlink alert.");
+      setError(toUserErrorMessage(err, "Failed to unlink alert."));
     } finally {
       setSaving(false);
     }
@@ -289,7 +289,7 @@ export function IncidentDetailsPage() {
       setMessage(response.message);
       await load();
     } catch (err: any) {
-      setError(err?.message || "Failed to add evidence.");
+      setError(toUserErrorMessage(err, "Failed to add evidence."));
     } finally {
       setSaving(false);
     }
@@ -307,7 +307,7 @@ export function IncidentDetailsPage() {
       setMessage(response.message);
       await load();
     } catch (err: any) {
-      setError(err?.message || "Failed to add incident note.");
+      setError(toUserErrorMessage(err, "Failed to add incident note."));
     } finally {
       setSaving(false);
     }
@@ -332,7 +332,7 @@ export function IncidentDetailsPage() {
       });
       setAiResult(response);
     } catch (err: any) {
-      setAiError(err?.message || "Failed to generate AI summary.");
+      setAiError(toUserErrorMessage(err, "Failed to generate AI summary."));
     } finally {
       setAiSummaryBusy(false);
     }
@@ -356,7 +356,7 @@ export function IncidentDetailsPage() {
       });
       setAiResult(response);
     } catch (err: any) {
-      setAiError(err?.message || "Failed to generate AI report draft.");
+      setAiError(toUserErrorMessage(err, "Failed to generate AI report draft."));
     } finally {
       setAiReportBusy(false);
     }

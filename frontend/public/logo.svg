@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" role="img" aria-label="LogShield">
+  <defs>
+    <linearGradient id="ls-g" x1="10" y1="8" x2="54" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00D8FF"/>
+      <stop offset="0.55" stop-color="#33E6FF"/>
+      <stop offset="1" stop-color="#7CFFEB"/>
+    </linearGradient>
+    <linearGradient id="ls-g2" x1="14" y1="14" x2="48" y2="54" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B1224" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#0B1224" stop-opacity="0.55"/>
+    </linearGradient>
+    <filter id="ls-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.2" result="blur"/>
+      <feColorMatrix in="blur" type="matrix"
+        values="0 0 0 0 0
+                0 0 0 0 0.85
+                0 0 0 0 1
+                0 0 0 0.55 0" result="glow"/>
+      <feMerge>
+        <feMergeNode in="glow"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Shield -->
+  <path d="M32 6.5 53.5 16.7v15.9c0 12.9-9 24.7-21.5 27.3C19.5 57.3 10.5 45.5 10.5 32.6V16.7L32 6.5z" fill="url(#ls-g)" fill-opacity="0.95"/>
+  <path d="M32 6.5v53.4c12.5-2.6 21.5-14.4 21.5-27.3V16.7L32 6.5z" fill="url(#ls-g2)"/>
+
+  <!-- Inner log lines -->
+  <path d="M20.5 27.5h23" stroke="#EAF6FF" stroke-width="2" stroke-linecap="round" opacity="0.26"/>
+  <path d="M20.5 33.5h18" stroke="#EAF6FF" stroke-width="2" stroke-linecap="round" opacity="0.22"/>
+  <path d="M20.5 39.5h14" stroke="#EAF6FF" stroke-width="2" stroke-linecap="round" opacity="0.18"/>
+
+  <!-- Check mark -->
+  <g filter="url(#ls-glow)">
+    <path d="M23.5 34.5l6.2 6.2L41.8 26.7" stroke="#05070D" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

@@ -4,7 +4,7 @@ import {
   Shield, ShieldAlert, ShieldCheck, User, XCircle, Info, Clock,
   Ban, FileText, Eye, Copy, CheckCircle,
 } from "lucide-react";
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { Pagination } from "../components/Pagination";
 import { AppModal } from "../components/ui/AppModal";
 import { EmptyState, ErrorState, SectionHeader, SkeletonBlock, SkeletonRows } from "../components/UI";
@@ -210,7 +210,7 @@ export function AuditLogsPage() {
     } catch (err: any) {
       setLogs([]);
       setTotal(0);
-      setError(err?.message || "Failed to load audit logs.");
+      setError(toUserErrorMessage(err, "Failed to load audit logs."));
     } finally {
       setLoading(false);
     }

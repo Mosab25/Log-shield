@@ -1,11 +1,17 @@
+import { useEffect, useState } from "react";
 import { ArrowLeft, Bell, LogOut, Menu, ShieldCheck, UserCircle } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 
-import { useAuth } from "../auth/AuthContext";
+import { useAuth, type AuthUser } from "../auth/AuthContext";
 import { pageTitleForPath } from "../navigation";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { getRouteAccent } from "../theme/routeAccents";
+import { loadUserPreferences } from "../utils/userPreferences";
 import { GlobalSearch } from "./GlobalSearch";
+
+function getAvatarPreview(user: Pick<AuthUser, "id" | "email"> | null): string {
+  return loadUserPreferences(user).avatarPreview || "";
+}
 
 export function Navbar({
   onMobileMenuClick,
@@ -19,6 +25,20 @@ export function Navbar({
   const isTablet = useMediaQuery("(min-width: 768px) and (max-width: 1023px)");
   const title = pageTitleForPath(location.pathname, role);
   const routeTitle = getRouteAccent(location.pathname).name;
+  const [avatarPreview, setAvatarPreview] = useState<string>(() => getAvatarPreview(user));
+
+  useEffect(() => {
+    const refreshAvatar = () => setAvatarPreview(getAvatarPreview(user));
+    const handleStorage = (event: StorageEvent) => {
+      if (!event.key || event.key.startsWith("logshield.user.preferences.")) refreshAvatar();
+    };
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("logshield:preferences-updated", refreshAvatar);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("logshield:preferences-updated", refreshAvatar);
+    };
+  }, [user?.id, user?.email]);
 
   async function handleLogout() {
     await logout();
@@ -84,8 +104,12 @@ export function Navbar({
               <Bell className="h-4 w-4" />
             </button>
           ) : null}
-          <div className="module-empty-icon flex h-10 w-10 items-center justify-center rounded-2xl shadow-inner shadow-black/20">
-            <UserCircle className="h-5 w-5" />
+          <div className="module-empty-icon flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl shadow-inner shadow-black/20">
+            {avatarPreview ? (
+              <img src={avatarPreview} alt="Profile avatar" className="h-full w-full object-cover" />
+            ) : (
+              <UserCircle className="h-5 w-5" />
+            )}
           </div>
           <button type="button" onClick={handleLogout} className={`soc-button-ghost h-10 ${isMobile ? "w-10 px-0" : "px-2 sm:px-3"}`}>
             <LogOut className="h-4 w-4" />

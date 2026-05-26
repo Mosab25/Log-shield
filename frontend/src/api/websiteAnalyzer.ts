@@ -82,7 +82,18 @@ export interface ExposedPathCheck {
   status_code: number | null;
   content_type: string;
   content_length: string;
+  response_size?: number;
+  final_url?: string;
   accessible: boolean;
+  classification?: "confirmed_exposed" | "protected" | "spa_fallback" | "generic_html" | "not_found" | "inconclusive";
+  confirmed?: boolean;
+  confirmed_exposed?: boolean;
+  risk_impact?: string;
+  reason?: string;
+  evidence?: string;
+  matched_evidence?: string[];
+  response_body_snippet?: string;
+  finding_created?: boolean;
 }
 
 export interface TechCheck {
@@ -239,6 +250,7 @@ export interface WebsiteAnalyzerResponse {
     robots?: RobotsCheck;
     sitemap?: SitemapCheck;
     exposed_paths: ExposedPathCheck[];
+    sensitive_path_checks?: ExposedPathCheck[];
     technology: TechCheck[];
     forms: Record<string, unknown>[];
     hidden_defacement?: HiddenDefacementCheck;

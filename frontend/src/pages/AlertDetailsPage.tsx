@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Ban, Briefcase, Link2, Plus, ShieldCheck } from "lucide-react";
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { analyzeLogs, type AiAnalysisResult } from "../api/aiAnalysis";
 import { useAuth } from "../auth/AuthContext";
 import { AiInsightCard } from "../components/ai/AiInsightCard";
@@ -40,6 +40,7 @@ export function AlertDetailsPage() {
   const [responseMessage, setResponseMessage] = useState<string | null>(null);
   const [responseError, setResponseError] = useState<string | null>(null);
   const [responseBusy, setResponseBusy] = useState(false);
+  const [ackBusy, setAckBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiResult, setAiResult] = useState<AiAnalysisResult | null>(null);
@@ -59,7 +60,7 @@ export function AlertDetailsPage() {
       try { setRisk(await apiClient.get<any>(`/risk/alert/${id}`)); } catch { setRisk(null); }
     } catch (err: any) {
       setAlert(null);
-      setError(err?.message || "Failed to load alert details.");
+      setError(toUserErrorMessage(err, "Failed to load alert details."));
     }
   }
   useEffect(() => { void load(); }, [id]);
@@ -86,7 +87,7 @@ export function AlertDetailsPage() {
       setIncidentMessage("Incident created and alert linked.");
       await loadLinkedIncidents(id);
     } catch (err: any) {
-      setIncidentError(err?.message || "Failed to create incident from alert.");
+      setIncidentError(toUserErrorMessage(err, "Failed to create incident from alert."));
     } finally {
       setIncidentSaving(false);
     }
@@ -103,7 +104,7 @@ export function AlertDetailsPage() {
       setResponseMessage(next ? "Marked as contained." : "Containment flag cleared.");
       await load();
     } catch (err: any) {
-      setResponseError(err?.message || "Could not update containment.");
+      setResponseError(toUserErrorMessage(err, "Could not update containment."));
     } finally {
       setResponseBusy(false);
     }
@@ -120,9 +121,29 @@ export function AlertDetailsPage() {
       setResponseMessage(`IP ${alert.source_ip} blocked. Review Admin → IP Blocks.`);
       await load();
     } catch (err: any) {
-      setResponseError(err?.message || "Could not block source IP.");
+      setResponseError(toUserErrorMessage(err, "Could not block source IP."));
     } finally {
       setResponseBusy(false);
+    }
+  }
+
+  async function acknowledgeAlert() {
+    if (!id || !alert || ackBusy) return;
+    setAckBusy(true);
+    setResponseMessage(null);
+    setResponseError(null);
+    try {
+      const response = await apiClient.patch<any>(`/alerts/${id}/acknowledge`);
+      const updatedAlert = response?.alert;
+      if (updatedAlert) {
+        setAlert(updatedAlert);
+      }
+      setResponseMessage("Alert acknowledged successfully.");
+      await load();
+    } catch (err: any) {
+      setResponseError(toUserErrorMessage(err, "Could not acknowledge alert. Please try again."));
+    } finally {
+      setAckBusy(false);
     }
   }
 
@@ -138,7 +159,7 @@ export function AlertDetailsPage() {
       setIncidentMessage("Alert linked to incident.");
       await loadLinkedIncidents(id);
     } catch (err: any) {
-      setIncidentError(err?.message || "Failed to link alert to incident.");
+      setIncidentError(toUserErrorMessage(err, "Failed to link alert to incident."));
     } finally {
       setIncidentSaving(false);
     }
@@ -149,20 +170,45 @@ export function AlertDetailsPage() {
     setAiBusy(true);
     setAiError(null);
     try {
+      const relatedLogs = Array.isArray(alert.related_logs) ? alert.related_logs : [];
+      const relatedLogCount = typeof alert.related_log_count === "number" ? alert.related_log_count : relatedLogs.length;
+      const eventTypes = Array.from(new Set(relatedLogs.map((entry: any) => String(entry?.event_type || "").trim()).filter(Boolean)));
+      const failedLoginCount = relatedLogs.filter((entry: any) => {
+        const eventType = String(entry?.event_type || "").toLowerCase();
+        const message = String(entry?.message || "").toLowerCase();
+        return eventType.includes("failed_login") || eventType.includes("login_failed") || message.includes("failed login");
+      }).length;
+      const targetedUsers = new Set(
+        relatedLogs
+          .map((entry: any) => String(entry?.username || "").trim().toLowerCase())
+          .filter(Boolean),
+      ).size;
+
       const payload = [
         `Alert #${alert.id ?? id}`,
         `Title: ${alert.title ?? ""}`,
         `Description: ${alert.description ?? ""}`,
         `Severity: ${alert.severity ?? ""}`,
+        `Risk Score: ${alert.risk_score ?? 0}`,
+        `Status: ${alert.status ?? ""}`,
+        `Detection Rule: ${alert.detection_rule_name ?? ""}`,
+        `Detection Rule Weight: ${alert.detection_rule_weight ?? ""}`,
+        `MITRE Tactic: ${alert.mitre_tactic ?? ""}`,
         `Source IP: ${alert.source_ip ?? ""}`,
-        `User: ${alert.username ?? ""}`,
+        `Username: ${alert.username ?? ""}`,
         `Attack Type: ${alert.attack_type ?? ""}`,
         `MITRE: ${alert.mitre_technique ?? ""}`,
+        `Related Logs Count: ${relatedLogCount}`,
+        `Related Log Event Types: ${eventTypes.join(", ") || "none"}`,
+        `Targeted Usernames Count: ${targetedUsers}`,
+        `Failed Login Count: ${failedLoginCount}`,
+        `Rule Explanation: ${alert.detection_explanation ?? ""}`,
+        `Risk Explanation: ${alert.risk_explanation ?? ""}`,
       ].join("\n");
       const result = await analyzeLogs({ raw_logs: payload, context: "Alert details analysis" });
       setAiResult(result);
     } catch (err: any) {
-      setAiError(err?.message || "Failed to generate AI insight.");
+      setAiError(toUserErrorMessage(err, "Failed to generate AI insight."));
     } finally {
       setAiBusy(false);
     }
@@ -190,9 +236,17 @@ export function AlertDetailsPage() {
             {aiBusy ? "Analyzing..." : "Generate AI Insight"}
           </button>
         </div>
+        <p className="text-xs text-slate-500">
+          AI-assisted analysis considers alert severity, related logs, MITRE mapping, and detection rule context.
+        </p>
         {aiError ? <ErrorState message={aiError} /> : null}
       </section>
       {aiResult ? <AiInsightCard result={aiResult} title="AI Alert Insight" /> : null}
+      {aiResult && alert.risk_score >= 70 && aiResult.risk_score < 50 ? (
+        <div className="rounded-2xl border border-amber-300/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-200">
+          AI risk was adjusted for alert context consistency. Review linked evidence and final recommendations.
+        </div>
+      ) : null}
 
       {canManageIncidents ? (
         <section className="soc-panel p-5">
@@ -200,6 +254,20 @@ export function AlertDetailsPage() {
           {responseMessage ? <div className="mb-3 rounded-2xl border border-emerald-300/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">{responseMessage}</div> : null}
           {responseError ? <div className="mb-3"><ErrorState message={responseError} /></div> : null}
           <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              disabled={ackBusy || String(alert.status || "").toLowerCase() !== "open"}
+              onClick={() => void acknowledgeAlert()}
+              className="soc-button-primary flex items-center gap-2"
+            >
+              {ackBusy
+                ? "Acknowledging..."
+                : String(alert.status || "").toLowerCase() === "acknowledged"
+                  ? "Acknowledged"
+                  : String(alert.status || "").toLowerCase() === "open"
+                    ? "Acknowledge"
+                    : "Already Updated"}
+            </button>
             <button type="button" disabled={responseBusy} onClick={() => void toggleContainment()} className="soc-button-ghost flex items-center gap-2">
               {alert.contained ? "Clear containment flag" : "Mark contained"}
             </button>

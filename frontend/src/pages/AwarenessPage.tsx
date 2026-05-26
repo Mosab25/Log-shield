@@ -65,7 +65,7 @@ const PUBLIC_QUIZZES: Quiz[] = [
     id: 1001,
     slug: "security-fundamentals-preview",
     title: "Security Fundamentals Preview",
-    description: "A guided introduction to core SOC concepts, alerts, severity, and safe investigation behavior.",
+    description: "A guided introduction to core security operations concepts, alerts, severity, and safe investigation behavior.",
     category: "Security Fundamentals",
     type: "awareness",
     difficulty: "beginner",
@@ -474,7 +474,7 @@ export function AwarenessPage() {
       />
 
         <InfoHint title="How analysts should use this">
-          Build quizzes around real SOC scenarios: phishing triage, failed logins, suspicious URLs, incident handoff, and evidence review.
+          Build quizzes around real security operations scenarios: phishing triage, failed logins, suspicious URLs, incident handoff, and evidence review.
         </InfoHint>
 
         {/* Analyst Action Buttons */}

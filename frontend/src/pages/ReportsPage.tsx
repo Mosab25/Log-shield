@@ -121,7 +121,7 @@ export function ReportsPage() {
       });
       setAiResult(response);
     } catch (err: any) {
-      setAiError(err?.message || "Failed to generate AI report draft.");
+      setAiError(toUserErrorMessage(err, "Failed to generate AI report draft."));
     } finally {
       setAiBusy(false);
     }

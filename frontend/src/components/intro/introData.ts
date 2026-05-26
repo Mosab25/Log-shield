@@ -1,4 +1,4 @@
-export type IntroAccentName = "cyan" | "red" | "violet" | "amber" | "green";
+﻿export type IntroAccentName = "cyan" | "red" | "violet" | "amber" | "green";
 
 export type IntroStat = {
   label: string;
@@ -38,7 +38,7 @@ export const INTRO_SCENES: IntroSceneConfig[] = [
     stats: [
       { code: "MOD", label: "MODULES ONLINE", value: "14", sub: "Fully integrated" },
       { code: "DET", label: "DETECTION ENGINE", value: "Active", sub: "Real-time analysis" },
-      { code: "SOC", label: "COVERAGE", value: "SOC Tier 1", sub: "Enterprise ready" },
+      { code: "OPS", label: "COVERAGE", value: "Security Ops Tier 1", sub: "Enterprise ready" },
     ],
   },
   {
@@ -73,7 +73,7 @@ export const INTRO_SCENES: IntroSceneConfig[] = [
     durationMs: 12000,
     stats: [
       { code: "INC", label: "OPEN INCIDENTS", value: "3", sub: "1 critical priority" },
-      { code: "TTP", label: "MITRE MAPPING", value: "T1078 · T1190", sub: "Active TTPs identified" },
+      { code: "TTP", label: "MITRE MAPPING", value: "T1078 | T1190", sub: "Active TTPs identified" },
       { code: "PLY", label: "PLAYBOOKS", value: "12 Active", sub: "Automated response" },
     ],
   },
@@ -116,3 +116,4 @@ export const INTRO_SCENES: IntroSceneConfig[] = [
 ];
 
 export const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+

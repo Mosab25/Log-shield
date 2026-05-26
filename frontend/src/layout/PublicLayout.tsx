@@ -8,9 +8,9 @@ import { OutletTransition } from "../components/PageTransition";
 const publicLinks = [
   { to: "/home", label: "Home" },
   { to: "/intro", label: "Intro" },
-  { to: "/tools", label: "SOC Toolkit" },
+  { to: "/tools", label: "Security Operations Toolkit" },
   { to: "/url-scanner", label: "URL Scanner" },
-  { to: "/threat-intelligence", label: "Threat Intelligence" },
+  { to: "/threat-intelligence", label: "Threat Research Hub" },
   { to: "/awareness", label: "Awareness" },
 ];
 

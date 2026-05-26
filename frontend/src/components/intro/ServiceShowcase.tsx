@@ -17,7 +17,7 @@ const services = [
   { label: "Logs", detail: "Structured monitoring", icon: ScrollText },
   { label: "Alerts", detail: "Smart detection", icon: BellRing },
   { label: "Incidents", detail: "Guided response", icon: BriefcaseBusiness },
-  { label: "SOC Toolkit", detail: "Analyst utilities", icon: Wrench },
+  { label: "Security Operations Toolkit", detail: "Analyst utilities", icon: Wrench },
   { label: "URL Scanner", detail: "Reputation checks", icon: ScanSearch },
   { label: "Threat Intel", detail: "CVE research", icon: Siren },
   { label: "Awareness", detail: "Training paths", icon: BookOpenCheck },

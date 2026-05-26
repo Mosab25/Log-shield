@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Briefcase, Plus, RefreshCw, Search, ShieldAlert } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 
-import { apiClient } from "../api/client";
+import { apiClient, toUserErrorMessage } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { Chip } from "../components/ui/Chip";
 import { RowActions } from "../components/ui/RowActions";
@@ -114,7 +114,7 @@ export function IncidentsPage() {
   const items = Array.isArray(incidentsQuery.data?.items) ? incidentsQuery.data.items : [];
   const total = Number(incidentsQuery.data?.total ?? 0);
   const loading = incidentsQuery.isLoading;
-  const queryError = incidentsQuery.error instanceof Error ? incidentsQuery.error.message : null;
+  const queryError = incidentsQuery.error ? toUserErrorMessage(incidentsQuery.error, "Unable to load incidents.") : null;
   const error = mutationError || queryError;
 
   if (loading && items.length === 0) {
@@ -156,7 +156,7 @@ export function IncidentsPage() {
       apiClient.invalidateCache("/incidents");
       await queryClient.invalidateQueries({ queryKey: ["incidents"] });
     } catch (err: any) {
-      setMutationError(err?.message || "Failed to create incident.");
+      setMutationError(toUserErrorMessage(err, "Failed to create incident."));
     } finally {
       setCreating(false);
     }

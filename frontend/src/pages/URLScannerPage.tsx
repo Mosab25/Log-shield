@@ -375,7 +375,7 @@ export function URLScannerPage() {
       />
 
       <InfoHint title="What the verdict means">
-        This scanner summarizes reputation signals like a SOC triage view: verdict, detection counts, score, source, and what to do next. Unknown does not mean safe; it means there was not enough reputation evidence.
+        This scanner summarizes reputation signals like a security operations triage view: verdict, detection counts, score, source, and what to do next. Unknown does not mean safe; it means there was not enough reputation evidence.
       </InfoHint>
       {!isAuthenticated ? (
         <InfoHint title="Public read-only mode">
