@@ -29,6 +29,7 @@ import { RowActions } from "../components/ui/RowActions";
 import { Skeleton } from "../components/ui/Skeleton";
 import { StatCard } from "../components/ui/StatCard";
 import { deriveAttackSignalFromText } from "../securitySignals";
+import { scoreToRiskLevel } from "../utils/riskModel";
 
 const initialFilters: DashboardFilters = { severity: "", source: "", status: "" };
 const FILE_ANALYSIS_STORAGE_KEY = "logshield.fileAnalyzer.findings";
@@ -150,8 +151,9 @@ function formatDate(value: string | null | undefined): string {
 }
 
 function riskTone(score: number): Tone {
-  if (score > 70) return "critical";
-  if (score > 40) return "warning";
+  const level = scoreToRiskLevel(score);
+  if (level === "critical") return "critical";
+  if (level === "high" || level === "medium") return "warning";
   return "safe";
 }
 

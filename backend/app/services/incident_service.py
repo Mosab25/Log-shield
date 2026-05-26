@@ -16,6 +16,7 @@ from app.models.normalized_log import NormalizedLog
 from app.models.user import User
 from app.schemas.incidents import IncidentCreate, IncidentEvidenceCreate, IncidentNoteCreate, IncidentUpdate
 from app.services.audit_service import AuditService
+from app.services.risk_scoring_service import RiskScoringService
 
 
 class IncidentService:
@@ -157,6 +158,34 @@ class IncidentService:
             "resolved_at": incident.resolved_at,
             "closed_at": incident.closed_at,
         }
+
+    @classmethod
+    def _recalculate_incident_severity_from_alerts(cls, *, db: Session, incident: Incident, actor_user_id: int | None = None) -> None:
+        linked = db.execute(
+            select(Alert.severity, Alert.risk_score)
+            .join(IncidentAlert, IncidentAlert.alert_id == Alert.id)
+            .where(IncidentAlert.incident_id == incident.id)
+        ).all()
+        if not linked:
+            return
+        max_alert_severity = RiskScoringService.max_severity(*[str(severity) for severity, _ in linked])
+        max_alert_risk = max(int(risk or 0) for _, risk in linked)
+
+        new_severity = max_alert_severity
+        if new_severity == "high" and len([1 for severity, _ in linked if str(severity).lower() in {"high", "critical"}]) >= 2:
+            new_severity = "critical"
+
+        if RiskScoringService.SEVERITY_ORDER.get(new_severity, 0) > RiskScoringService.SEVERITY_ORDER.get(incident.severity, 0):
+            old_severity = incident.severity
+            incident.severity = new_severity
+            cls._add_timeline_event(
+                db=db,
+                incident_id=incident.id,
+                event_type="severity_inherited",
+                message=f"Incident severity updated from {old_severity} to {new_severity} based on linked alert risk context.",
+                actor_user_id=actor_user_id,
+                metadata={"old_severity": old_severity, "new_severity": new_severity, "max_alert_risk": max_alert_risk},
+            )
 
     @classmethod
     def list_incidents(
@@ -462,6 +491,8 @@ class IncidentService:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Alert is already linked to this incident.")
 
         db.add(IncidentAlert(incident_id=incident_id, alert_id=alert_id, linked_by_user_id=current_user.id))
+        incident = cls._get_incident_or_404(db, incident_id)
+        cls._recalculate_incident_severity_from_alerts(db=db, incident=incident, actor_user_id=current_user.id)
         cls._add_timeline_event(
             db=db,
             incident_id=incident_id,
@@ -500,6 +531,8 @@ class IncidentService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Linked alert was not found in this incident.")
 
         db.delete(link)
+        incident = cls._get_incident_or_404(db, incident_id)
+        cls._recalculate_incident_severity_from_alerts(db=db, incident=incident, actor_user_id=current_user.id)
         cls._add_timeline_event(
             db=db,
             incident_id=incident_id,

@@ -168,6 +168,9 @@ export function AlertDetailsPanel({ alert, risk }: { alert: any; risk: any | nul
         <section className="soc-panel p-5">
           <SectionHeader title="Risk Analysis" icon={Activity} />
           <p className="text-sm leading-6 text-cyber-muted">{risk.explanation}</p>
+          <p className="mt-2 text-xs text-slate-500">
+            Alert severity is calculated from correlated evidence. Individual log entries may have lower severity than the final alert.
+          </p>
         </section>
       ) : null}
 

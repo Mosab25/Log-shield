@@ -454,21 +454,24 @@ def _apply_alert_consistency_guards(
 
     if alert_severity in {"high", "critical"} or alert_risk >= 70:
         severity = _max_severity(severity, "high")
-        if score < 50:
-            score = max(score, max(0, alert_risk - 10))
+        minimum_context_score = max(0, alert_risk - 10)
+        if score < minimum_context_score:
+            score = minimum_context_score
             reasons.append("Adjusted to match alert risk context and linked evidence.")
-        score = max(score, min(alert_risk, 90))
-        verdict = "attack_detected" if score >= 75 else verdict
+        if alert_risk >= 75:
+            severity = _max_severity(severity, "critical")
+            score = max(score, 75)
+            verdict = "attack_detected"
 
     if alert_risk >= 80:
-        score = max(score, 75)
+        score = max(score, 80)
         if has_mitre and (related_count > 0 or failed_login_count > 0):
             confidence = max(confidence, 0.8)
 
     if score >= 90:
         severity = "critical"
         verdict = "attack_detected"
-    elif score >= 70:
+    elif score >= 75:
         severity = _max_severity(severity, "high")
         verdict = "attack_detected"
     elif score >= 35:

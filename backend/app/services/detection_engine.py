@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
@@ -14,6 +14,7 @@ from app.models.normalized_log import NormalizedLog
 from app.services.alert_notification_service import AlertNotificationService
 from app.services.audit_service import AuditService
 from app.services.detection_suppression import should_suppress_detection
+from app.services.risk_scoring_service import RiskScoringService
 
 logger = logging.getLogger("logshield.detection")
 
@@ -35,6 +36,29 @@ class DetectionEngine:
         return db.execute(select(Alert).where(Alert.detection_rule_id == rule_id, Alert.normalized_log_id == log_id)).scalar_one_or_none() is not None
 
     @staticmethod
+    def _find_recent_similar_open_alert(
+        db: Session,
+        *,
+        rule_id: int,
+        source_ip: str | None,
+        dedupe_minutes: int = 15,
+    ) -> Alert | None:
+        if not source_ip:
+            return None
+        since = datetime.now(timezone.utc) - timedelta(minutes=max(dedupe_minutes, 1))
+        return db.execute(
+            select(Alert)
+            .join(NormalizedLog, Alert.normalized_log_id == NormalizedLog.id)
+            .where(
+                Alert.detection_rule_id == rule_id,
+                Alert.created_at >= since,
+                Alert.status.in_(["open", "acknowledged", "investigating", "escalated"]),
+                NormalizedLog.src_ip == source_ip,
+            )
+            .order_by(Alert.created_at.desc())
+        ).scalars().first()
+
+    @staticmethod
     def _create_alert(
         db: Session,
         *,
@@ -44,8 +68,34 @@ class DetectionEngine:
         title: str,
         description: str,
         detection_explanation: str | None = None,
+        severity_override: str | None = None,
+        risk_override: int | None = None,
     ) -> Alert | None:
         if DetectionEngine._alert_exists(db, rule.id, primary_log.id):
+            return None
+        similar_alert = DetectionEngine._find_recent_similar_open_alert(
+            db,
+            rule_id=rule.id,
+            source_ip=primary_log.src_ip,
+        )
+        if similar_alert is not None:
+            existing_rel = db.execute(
+                select(AlertRelatedLog).where(
+                    AlertRelatedLog.alert_id == similar_alert.id,
+                    AlertRelatedLog.normalized_log_id == primary_log.id,
+                )
+            ).scalar_one_or_none()
+            if existing_rel is None:
+                db.add(AlertRelatedLog(alert_id=similar_alert.id, normalized_log_id=primary_log.id))
+            for log in {log.id: log for log in related_logs}.values():
+                linked = db.execute(
+                    select(AlertRelatedLog).where(
+                        AlertRelatedLog.alert_id == similar_alert.id,
+                        AlertRelatedLog.normalized_log_id == log.id,
+                    )
+                ).scalar_one_or_none()
+                if linked is None:
+                    db.add(AlertRelatedLog(alert_id=similar_alert.id, normalized_log_id=log.id))
             return None
         expl_parts = []
         if detection_explanation:
@@ -59,15 +109,17 @@ class DetectionEngine:
             expl_parts.append(f"MITRE: {rule.mitre_tactic or ''} {rule.mitre_technique or ''}".strip())
         merged_expl = "\n".join(p for p in expl_parts if p)
 
-        initial_risk = max(
-            DetectionEngine._SEVERITY_BASE_RISK.get(rule.severity, 40),
-            min(100, int(rule.risk_weight or 0) + 40),
-        )
+        effective_severity = (severity_override or rule.severity or "medium").lower()
+        baseline_risk = DetectionEngine._SEVERITY_BASE_RISK.get(effective_severity, 40)
+        weighted_risk = min(100, int(rule.risk_weight or 0) + 40)
+        initial_risk = max(baseline_risk, weighted_risk)
+        if risk_override is not None:
+            initial_risk = max(0, min(100, int(risk_override)))
 
         alert = Alert(
             title=title,
             description=description,
-            severity=rule.severity,
+            severity=effective_severity,
             risk_score=initial_risk,
             status="open",
             normalized_log_id=primary_log.id,
@@ -117,9 +169,25 @@ class DetectionEngine:
             if len(related) >= thr_bf:
                 rule = cls._rule(db, "Brute Force Login")
                 if rule:
+                    related_usernames = len({(entry.username or "").strip().lower() for entry in related if entry.username})
+                    risk_context = RiskScoringService.calculate_risk_score({
+                        "base_severity": "medium",
+                        "rule_weight": rule.risk_weight,
+                        "mitre_technique": rule.mitre_technique,
+                        "related_logs_count": len(related),
+                        "distinct_usernames_count": related_usernames,
+                        "source_ip": log.src_ip,
+                        "automation_signal": True,
+                        "targets_sensitive_assets": (log.username or "").lower() in {"admin", "administrator", "root"},
+                        "successful_followup": False,
+                        "repeated_occurrence": len(related) >= thr_bf,
+                    })
+                    dynamic_severity = risk_context["severity"]
+                    dynamic_risk = risk_context["risk_score"]
                     expl = (
                         f"Matched because there were {len(related)} failed login events for the same username and source IP "
-                        f"within {settings.detection_sliding_window_minutes} minutes (threshold {thr_bf})."
+                        f"within {settings.detection_sliding_window_minutes} minutes (threshold {thr_bf}). "
+                        f"Severity calibrated to {dynamic_severity.upper()} based on attempt volume."
                     )
                     alert = cls._create_alert(
                         db=db,
@@ -129,6 +197,8 @@ class DetectionEngine:
                         title=f"Brute Force Login: {log.source}",
                         description=f"{len(related)} failed login attempts detected for {log.username} from {log.src_ip}.",
                         detection_explanation=expl,
+                        severity_override=dynamic_severity,
+                        risk_override=dynamic_risk,
                     )
                     if alert:
                         created.append(alert)
@@ -318,6 +388,18 @@ class DetectionEngine:
                 ).scalars().all()
                 rule = cls._rule(db, "Multiple Users From Same IP")
                 if rule:
+                    risk_context = RiskScoringService.calculate_risk_score({
+                        "base_severity": "high",
+                        "rule_weight": rule.risk_weight,
+                        "mitre_technique": rule.mitre_technique,
+                        "related_logs_count": len(related),
+                        "distinct_usernames_count": int(usernames),
+                        "source_ip": log.src_ip,
+                        "automation_signal": True,
+                        "targets_sensitive_assets": True,
+                        "successful_followup": False,
+                        "repeated_occurrence": True,
+                    })
                     expl = (
                         f"Matched because {usernames} distinct usernames had failed logins from {log.src_ip} within "
                         f"{settings.detection_sliding_window_minutes} minutes (threshold {thr_multi_user})."
@@ -330,6 +412,8 @@ class DetectionEngine:
                         title=f"Multiple Users From Same IP: {log.source}",
                         description=f"Failed login attempts against multiple users from {log.src_ip}.",
                         detection_explanation=expl,
+                        severity_override=str(risk_context["severity"]),
+                        risk_override=int(risk_context["risk_score"]),
                     )
                     if alert:
                         created.append(alert)

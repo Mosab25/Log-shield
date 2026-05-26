@@ -57,7 +57,7 @@ def stats(db: Annotated[Session, Depends(get_db)], current_user: Annotated[User,
     # High-risk open alerts
     high_risk_open = db.execute(
         select(func.count(Alert.id)).where(
-            Alert.risk_score >= 61,
+            Alert.risk_score >= 50,
             Alert.status.in_(["open","investigating","escalated"])
         )
     ).scalar_one()

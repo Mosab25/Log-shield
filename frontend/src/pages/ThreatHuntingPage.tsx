@@ -12,6 +12,7 @@ import { FilterRow } from "../components/ui/FilterRow";
 import { PageHeader } from "../components/ui/PageHeader";
 import { RowActions } from "../components/ui/RowActions";
 import { StatCard } from "../components/ui/StatCard";
+import { isHighRiskScore, representativeScoreForLevel, scoreToRiskLevel } from "../utils/riskModel";
 
 type HuntRisk = "low" | "medium" | "high" | "critical";
 type TimeRange = "1h" | "24h" | "7d";
@@ -360,6 +361,48 @@ function riskTextClass(level: HuntRisk): string {
   return "text-cyan-200";
 }
 
+function huntRiskToScore(level: HuntRisk): number {
+  return representativeScoreForLevel(level);
+}
+
+function severityRank(level: string): number {
+  const normalized = (level || "").toLowerCase();
+  if (normalized === "critical") return 4;
+  if (normalized === "high") return 3;
+  if (normalized === "medium") return 2;
+  if (normalized === "low") return 1;
+  return 0;
+}
+
+function scoreToSeverity(score: number): string {
+  return scoreToRiskLevel(score);
+}
+
+function normalizeHuntFindingRisk(items: Finding[], template: HuntTemplate): Finding[] {
+  const baselineScore = huntRiskToScore(template.riskLevel);
+  return items.map(item => {
+    let adjustedScore = Math.max(typeof item.riskScore === "number" ? item.riskScore : 0, baselineScore);
+
+    if (item.eventType === "failed_login_cluster") {
+      const countMatch = item.message.match(/^(\d+)\s+failed logins/i);
+      const failedCount = countMatch ? Number.parseInt(countMatch[1], 10) : 0;
+      if (failedCount >= 10) adjustedScore = Math.max(adjustedScore, 90);
+      else if (failedCount >= 6) adjustedScore = Math.max(adjustedScore, 82);
+      else if (failedCount >= 3) adjustedScore = Math.max(adjustedScore, 75);
+    }
+
+    const severityFromScore = scoreToSeverity(adjustedScore);
+    const finalSeverity =
+      severityRank(severityFromScore) >= severityRank(item.severity) ? severityFromScore : item.severity;
+
+    return {
+      ...item,
+      riskScore: adjustedScore,
+      severity: finalSeverity,
+    };
+  });
+}
+
 export function ThreatHuntingPage() {
   const [selectedTemplateId, setSelectedTemplateId] = useState(HUNT_TEMPLATES[0].id);
   const [timeRange, setTimeRange] = useState<TimeRange>("24h");
@@ -423,11 +466,14 @@ export function ThreatHuntingPage() {
         setWarning(`Partial data loaded. Source unavailable: ${failedSources.join(", ")}. Results shown from available telemetry.`);
       }
 
-      const nextFindings = runHunt(selectedTemplate.id, timeRange, logs, alerts);
+      const nextFindings = normalizeHuntFindingRisk(
+        runHunt(selectedTemplate.id, timeRange, logs, alerts),
+        selectedTemplate,
+      );
       setFindings(nextFindings);
 
       const highRiskFindings = nextFindings.filter(item => {
-        if (typeof item.riskScore === "number" && item.riskScore >= 70) return true;
+        if (typeof item.riskScore === "number" && isHighRiskScore(item.riskScore)) return true;
         return ["high", "critical"].includes(item.severity.toLowerCase());
       }).length;
       const history = loadRunHistory();

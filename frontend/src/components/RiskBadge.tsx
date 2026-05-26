@@ -1,14 +1,18 @@
+import { scoreToRiskLevel } from "../utils/riskModel";
+
 function level(score: number) {
-  if (score <= 30) return "Low";
-  if (score <= 60) return "Medium";
-  if (score <= 85) return "High";
-  return "Critical";
+  const mapped = scoreToRiskLevel(score);
+  if (mapped === "critical") return "Critical";
+  if (mapped === "high") return "High";
+  if (mapped === "medium") return "Medium";
+  return "Low";
 }
 
 function cls(score: number) {
-  if (score <= 30) return "border-cyber-green/25 bg-cyber-green/10 text-cyber-green";
-  if (score <= 60) return "border-cyber-amber/25 bg-cyber-amber/10 text-cyber-amber";
-  if (score <= 85) return "border-cyber-amber/25 bg-cyber-amber/10 text-cyber-amber";
+  const mapped = scoreToRiskLevel(score);
+  if (mapped === "low") return "border-cyber-green/25 bg-cyber-green/10 text-cyber-green";
+  if (mapped === "medium") return "border-cyber-amber/25 bg-cyber-amber/10 text-cyber-amber";
+  if (mapped === "high") return "border-cyber-amber/25 bg-cyber-amber/10 text-cyber-amber";
   return "border-cyber-red/30 bg-cyber-red/10 text-cyber-red";
 }
 
