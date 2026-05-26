@@ -9,6 +9,7 @@ import { Chip } from "../components/ui/Chip";
 import { EmptyState } from "../components/ui/EmptyState";
 import { PageHeader } from "../components/ui/PageHeader";
 import { RowActions } from "../components/ui/RowActions";
+import { scoreToRiskLevel } from "../utils/riskModel";
 
 interface URLScanRequest {
   url: string;
@@ -246,9 +247,9 @@ export function URLScannerPage() {
   }
 
   function getScoreColor(score: number) {
-    if (score <= 20) return "text-emerald-400";
-    if (score <= 40) return "text-amber-400";
-    if (score <= 60) return "text-amber-400";
+    const level = scoreToRiskLevel(score);
+    if (level === "low") return "text-emerald-400";
+    if (level === "medium" || level === "high") return "text-amber-400";
     return "text-red-400";
   }
 

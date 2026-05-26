@@ -14,6 +14,7 @@ import {
 import { apiClient, toUserErrorMessage } from "../api/client";
 import { InfoHint, RecommendedActions, VerdictBadge } from "../components/Guidance";
 import { EmptyState, ErrorState, SectionHeader, SkeletonBlock } from "../components/UI";
+import { scoreToRiskLevel } from "../utils/riskModel";
 
 interface URLScanEngineResult {
   engine: string;
@@ -68,9 +69,9 @@ function statusIcon(status: string) {
 }
 
 function scoreColor(score: number) {
-  if (score <= 20) return "text-emerald-300";
-  if (score <= 40) return "text-amber-300";
-  if (score <= 60) return "text-amber-300";
+  const level = scoreToRiskLevel(score);
+  if (level === "low") return "text-emerald-300";
+  if (level === "medium" || level === "high") return "text-amber-300";
   return "text-red-300";
 }
 

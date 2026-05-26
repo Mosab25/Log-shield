@@ -79,6 +79,7 @@ import {
 } from "../features/mySecurity/scanHistory";
 import { useAuth } from "../auth/AuthContext";
 import { BRAND } from "../config/branding";
+import { scoreToRiskLevel } from "../utils/riskModel";
 
 const MAX_INPUT_BYTES = 50 * 1024;
 
@@ -560,9 +561,10 @@ function extractIocs(text: string): IocGroup[] {
 }
 
 function verdictFromRisk(score: number, severity: ToolSeverity, defaultVerdict: ToolVerdict = "unknown"): ToolVerdict {
-  if (severity === "critical" || score >= 85) return "malicious";
-  if (severity === "high" || score >= 45) return "suspicious";
-  if (severity === "medium" || score >= 20) return "suspicious";
+  const level = scoreToRiskLevel(score);
+  if (severity === "critical" || level === "critical") return "malicious";
+  if (severity === "high" || level === "high" || level === "medium") return "suspicious";
+  if (severity === "medium") return "suspicious";
   return defaultVerdict;
 }
 
@@ -1257,11 +1259,7 @@ function LogTriageTool() {
     }
     riskScore = Math.max(0, Math.min(100, riskScore));
     const verdict = scriptSignal.isAttack || signals.length > 0 ? "attack_detected" : "no_clear_attack";
-    const finalSeverity =
-      riskScore >= 85 ? "critical"
-      : riskScore >= 60 ? "high"
-      : riskScore >= 30 ? "medium"
-      : "low";
+    const finalSeverity = scoreToRiskLevel(riskScore) as ToolSeverity;
 
     setOutput(JSON.stringify({
       safety_model: {
@@ -1285,7 +1283,7 @@ function LogTriageTool() {
     }, null, 2));
     setAssessment({
       title: "Log triage assessment",
-      verdict: riskScore >= 85 ? "malicious" : riskScore >= 30 ? "suspicious" : "unknown",
+      verdict: verdictFromRisk(riskScore, finalSeverity, "unknown"),
       severity: finalSeverity,
       riskScore,
       summary: verdict === "attack_detected"
@@ -1731,7 +1729,12 @@ function FileAnalyzerTool() {
       });
       setAssessment({
         title: "File triage assessment",
-        verdict: assessment.verdict === "attack_detected" ? (assessment.risk_score >= 85 ? "malicious" : "suspicious") : assessment.verdict === "suspicious" ? "suspicious" : "unknown",
+        verdict:
+          assessment.verdict === "attack_detected"
+            ? verdictFromRisk(assessment.risk_score, scoreToRiskLevel(assessment.risk_score) as ToolSeverity, "suspicious")
+            : assessment.verdict === "suspicious"
+              ? "suspicious"
+              : "unknown",
         severity: assessment.severity,
         riskScore: assessment.risk_score,
         summary: assessment.attack_name,

@@ -318,7 +318,7 @@ function runHunt(templateId: string, range: TimeRange, logs: NormalizedLogItem[]
     case "high_risk_logs_24h":
       return sortFindings(
         logsInRange
-          .filter(log => (typeof log.risk_score === "number" && log.risk_score >= 70) || ["high", "critical"].includes((log.severity || "").toLowerCase()))
+          .filter(log => (typeof log.risk_score === "number" && isHighRiskScore(log.risk_score)) || ["high", "critical"].includes((log.severity || "").toLowerCase()))
           .map(log => logToFinding(log, "high_risk_event")),
       );
     case "new_source_ip_with_alerts": {
@@ -374,10 +374,6 @@ function severityRank(level: string): number {
   return 0;
 }
 
-function scoreToSeverity(score: number): string {
-  return scoreToRiskLevel(score);
-}
-
 function normalizeHuntFindingRisk(items: Finding[], template: HuntTemplate): Finding[] {
   const baselineScore = huntRiskToScore(template.riskLevel);
   return items.map(item => {
@@ -391,7 +387,7 @@ function normalizeHuntFindingRisk(items: Finding[], template: HuntTemplate): Fin
       else if (failedCount >= 3) adjustedScore = Math.max(adjustedScore, 75);
     }
 
-    const severityFromScore = scoreToSeverity(adjustedScore);
+    const severityFromScore = scoreToRiskLevel(adjustedScore);
     const finalSeverity =
       severityRank(severityFromScore) >= severityRank(item.severity) ? severityFromScore : item.severity;
 

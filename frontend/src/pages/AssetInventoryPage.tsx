@@ -12,6 +12,7 @@ import { PageHeader } from "../components/ui/PageHeader";
 import { RowActions } from "../components/ui/RowActions";
 import { StatCard } from "../components/ui/StatCard";
 import { ErrorState, SkeletonRows } from "../components/UI";
+import { scoreToRiskLevel } from "../utils/riskModel";
 
 type AssetType =
   | "Server"
@@ -151,13 +152,6 @@ function inferAssetTypeFromHost(host: string): AssetType {
   return "Server";
 }
 
-function riskLevelFromScore(score: number): "low" | "medium" | "high" | "critical" {
-  if (score >= 80) return "critical";
-  if (score >= 60) return "high";
-  if (score >= 35) return "medium";
-  return "low";
-}
-
 function statusBadgeClass(status: AssetStatus): string {
   if (status === "Critical") return "border-red-300/30 bg-red-500/10 text-red-200";
   if (status === "At Risk") return "border-amber-300/30 bg-amber-500/10 text-amber-200";
@@ -167,9 +161,9 @@ function statusBadgeClass(status: AssetStatus): string {
 }
 
 function riskTextClass(score: number): string {
-  const level = riskLevelFromScore(score);
+  const level = scoreToRiskLevel(score);
   if (level === "critical") return "text-red-200";
-  if (level === "high") return "text-red-200";
+  if (level === "high") return "text-amber-200";
   if (level === "medium") return "text-amber-200";
   return "text-emerald-200";
 }
@@ -507,7 +501,7 @@ export function AssetInventoryPage() {
         if (!haystack.includes(needle)) return false;
       }
       if (assetType && asset.assetType !== assetType) return false;
-      if (riskLevel && riskLevelFromScore(asset.riskScore) !== riskLevel) return false;
+      if (riskLevel && scoreToRiskLevel(asset.riskScore) !== riskLevel) return false;
       if (status && asset.status !== status) return false;
       if (hasOpenAlerts && asset.openAlerts === 0) return false;
       if (ipFilter.trim() && !(asset.ipAddress || "").includes(ipFilter.trim())) return false;
@@ -669,11 +663,12 @@ export function AssetInventoryPage() {
                 </thead>
                 <tbody>
                   {filtered.map(asset => {
-                    const riskTone = asset.riskScore > 70 ? "critical" : asset.riskScore > 40 ? "warning" : "safe";
+                    const riskLevel = scoreToRiskLevel(asset.riskScore);
+                    const riskTone = riskLevel === "critical" ? "critical" : riskLevel === "high" || riskLevel === "medium" ? "warning" : "safe";
                     const statusTone = asset.status === "Active" ? "safe" : asset.status === "Inactive" ? "neutral" : asset.status === "Unknown" ? "neutral" : "warning";
-                    const rowStyle = asset.riskScore > 70
+                    const rowStyle = riskLevel === "critical"
                       ? { backgroundColor: "rgba(255,59,59,0.03)" }
-                      : asset.riskScore > 40
+                      : riskLevel === "high" || riskLevel === "medium"
                         ? { backgroundColor: "rgba(245,158,11,0.03)" }
                         : undefined;
                     return (
@@ -696,7 +691,7 @@ export function AssetInventoryPage() {
                         <div className="flex items-center gap-2">
                           <span>{asset.riskScore}</span>
                           <div className="h-1 w-16 rounded bg-white/10">
-                            <div className={`h-1 rounded ${asset.riskScore > 70 ? "bg-[var(--status-critical)]" : asset.riskScore > 40 ? "bg-[var(--status-warning)]" : "bg-[var(--status-safe)]"}`} style={{ width: `${Math.min(100, asset.riskScore)}%` }} />
+                            <div className={`h-1 rounded ${riskLevel === "critical" ? "bg-[var(--status-critical)]" : riskLevel === "high" || riskLevel === "medium" ? "bg-[var(--status-warning)]" : "bg-[var(--status-safe)]"}`} style={{ width: `${Math.min(100, asset.riskScore)}%` }} />
                           </div>
                         </div>
                       </td>
@@ -836,7 +831,7 @@ export function AssetInventoryPage() {
                         {asset.assetType} - IP {asset.ipAddress || "N/A"} - Last seen {asset.lastSeen ? new Date(asset.lastSeen).toLocaleString() : "Unknown"}
                       </p>
                     </div>
-                    <Chip tone={asset.riskScore > 70 ? "critical" : asset.riskScore > 40 ? "warning" : "safe"}>
+                    <Chip tone={scoreToRiskLevel(asset.riskScore) === "critical" ? "critical" : scoreToRiskLevel(asset.riskScore) === "high" || scoreToRiskLevel(asset.riskScore) === "medium" ? "warning" : "safe"}>
                       Risk {asset.riskScore}
                     </Chip>
                   </div>
