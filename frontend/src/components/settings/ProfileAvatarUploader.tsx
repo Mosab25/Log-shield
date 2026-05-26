@@ -111,7 +111,7 @@ export function ProfileAvatarUploader({
         <div>
           <h3 className="text-sm font-bold text-white">Profile Photo</h3>
           <p className="text-xs text-slate-400">
-            Avatar preview is stored locally in this browser until backend avatar storage is configured.
+            Avatar preview is validated locally and stored per user in this browser until backend avatar storage is configured.
           </p>
         </div>
       </div>
@@ -159,7 +159,7 @@ export function ProfileAvatarUploader({
           Allowed formats: PNG, JPG, WebP. Max size: 2MB.
         </div>
         <p className="mt-2">
-          Avatar upload is validated by file type and size. Server-side image reprocessing is recommended for production.
+          Avatar preview is validated locally and stored per user in this browser. Server-side image reprocessing is recommended for production.
         </p>
       </div>
     </section>

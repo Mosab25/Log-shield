@@ -122,7 +122,7 @@ class DashboardService:
         ).one()
         
         # Simplified high-risk IP count - use subquery for better performance
-        high_risk_filters = [Alert.risk_score >= 61, NormalizedLog.src_ip.is_not(None)]
+        high_risk_filters = [Alert.risk_score >= 50, NormalizedLog.src_ip.is_not(None)]
         if source:
             source_filter = (NormalizedLog.source == source) | (NormalizedLog.source_type == source)
             high_risk_filters.append(source_filter)
@@ -193,9 +193,9 @@ class DashboardService:
             filters = cls._filters_with_source(db, start_date, end_date, severity, source, status)
             counts = {"low":0,"medium":0,"high":0,"critical":0}
             bucket = case(
-                (Alert.risk_score <= 30, "low"),
-                (Alert.risk_score <= 60, "medium"),
-                (Alert.risk_score <= 85, "high"),
+                (Alert.risk_score <= 24, "low"),
+                (Alert.risk_score <= 49, "medium"),
+                (Alert.risk_score <= 74, "high"),
                 else_="critical",
             )
             rows = db.execute(select(bucket.label("level"), func.count(Alert.id)).where(*filters).group_by(bucket)).all()
