@@ -15,7 +15,7 @@
   position: relative;
   min-height: 100vh;
   width: 100%;
-  max-width: 100vw;
+  max-width: 100%;
   overflow: hidden;
   background: #050816;
   color: var(--ls-text);
